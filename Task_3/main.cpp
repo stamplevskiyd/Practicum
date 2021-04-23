@@ -3,10 +3,13 @@
 #include <vector>
 #include <algorithm>
 #include <string>
-
-//Beta-1.2. Самое начало разработки синтаксического анализатора
+#include <fstream>
 
 using namespace std;
+
+//Beta-1.1
+//переделано хранение строк, убрано хранение комментариев, добавлены спец. символы.
+//работа над ошибками. Оказалось, что по варианту, скорее всего, не надо ничего добавлять. Максимум-while do.
 
 enum Lex_Type {LEX_NULL, LEX_AND, LEX_BEGIN, LEX_ID, LEX_BOOL,
         LEX_READ, LEX_TRUE, LEX_FALSE, LEX_WRITE, LEX_COMMENT,
@@ -104,51 +107,6 @@ string Scanner::TD[] = {"", ";", "@", ",", ":", "=", "(", ")", "<", ">", "+",
                         "-", "*", "/", "<=", ">=", "!=", "{", "}", "%", "END_OF_ARRAY"}; //END_OF_ARRAY- для более простой реализации поиска
 string Scanner::TW[] = {"", "and", "boolean", "else", "if", "false", "int", "not", "or",
                         "program", "read", "true", "while", "write", "string", "break", "do", "END_OF_ARRAY"};
-
-class Parser{
-    Lex Current_Lex;
-    Lex_Type Current_Type;
-    int Current_Value;
-    Scanner Scan;
-    //stack <int> Stack_Int;
-    void P(); //program
-    void D1();
-    void D();
-    void S();
-    void E();
-    void E1();
-    void T();
-    void F();
-    void L();
-    void I();
-    void N();
-    void Get_Lexeme() { //такое название-чтобы не путать с Get_Lex
-        Current_Lex = Scan.Get_Lex(); //получаем саму лексему. как с gc
-        Current_Type = Current_Lex.Get_Lex_Type();
-        Current_Value = Current_Lex.Get_Lex_Value();
-    }
-public:
-    void Analyse();
-};
-
-void Parser::Analyse() {
-    Get_Lexeme(); //получаем лексему. сейчас-самое начало
-    P();
-    if (Current_Type != LEX_FIN)
-        throw Current_Lex; //если проанализировали программу и итоговая лексема-не LEX_FIN - это ошибка
-}
-
-void Parser::P(){
-    if (Current_Type == LEX_BEGIN)
-        Get_Lexeme();
-    else
-        throw Current_Lex;
-    D1();
-    if (Current_Type == LEX_SEMICOLON)
-        Get_Lexeme();
-    else
-        throw Current_Lex;
-}
 
 int Put_String(string &Str)
 {
@@ -448,6 +406,9 @@ bool Scanner::Belongs_to_TD(char c) {  //проверка, является ли
 }
 
 int main() {
+    ofstream Additional ("Additional file.txt"); //перенаправим вывод в дополнительный файл, чтобы, в случае ошибки, выдавать только ошибку
+    streambuf *coutbuf = cout.rdbuf();
+    cout.rdbuf(Additional.rdbuf());
     try {
         Scanner S1;
         Lex L1(LEX_AND, 0);
@@ -457,6 +418,7 @@ int main() {
             cout << L1;
     }
     catch (Error E1){
+        cout.rdbuf(coutbuf); //перенаправляем вывод обратно
         if (E1.Type == Error::WRONG_CHARACTER) cout << "Error: Wrong character: " << E1.c << endl;
         if (E1.Type == Error::WRONG_IDENTIFIER) cout << "Error: Incorrect type of identifier: " << E1.Wrong_Lex << endl;
         if (E1.Type == Error::UNCLOSED_COMMENT) cout << "Error: Code contains unclosed comments" << endl;
@@ -469,6 +431,16 @@ int main() {
         if (E1.Type == Error::UNKNOWN_ERROR) cout << "Unknown error" << endl;
         return 0;
     }
+    cout.rdbuf(coutbuf); //перенаправляем вывод обратно
     cout << "Lexical analyses was completed successfully!\n\n";
+    ifstream Output("Additional file.txt");
+    string buf; //строка-буфер для вывода
+    while(buf != "LEX_FIN") //это работает только при корректной программе, а у корректной программы всегда есть LEX_FIN
+    {
+        getline(Output, buf, '\n');
+        cout << buf << endl;
+    }
+    Additional.close();
+    ofstream Clearing("Additional file.txt", ios::out); //очистка файла-буфера
     return 0;
 }
