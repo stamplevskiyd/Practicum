@@ -4,11 +4,9 @@
 #include <algorithm>
 #include <string>
 
-//Beta-1.3. Добавлено распознавание инициализации переменных, привязывание их значений
-//работает, вроде, корректно
-//убрана лексема-комментарий, для более удобной работы
-//добавлена функция вывода первой неправильной строки
-//начата раобта над операторами и выражениями
+//Beta-1.4 Добавлено распознавание типов переменных и констант для корректного сравнения
+//добавлена работа со скобками в логических выражениях
+//всегда функция считываем лишнюю лексему, а для слкдующей функции эта лексема явлается начальной
 
 using namespace std;
 
@@ -41,7 +39,7 @@ enum Lex_Type {
     LEX_ASSIGN, LEX_END, LEX_IF, LEX_INT, LEX_NOT, LEX_WHILE,
     LEX_SEMICOLON, LEX_OPEN_BRACKET, LEX_CLOSE_BRACKET,
     LEX_OPEN_BRACE, LEX_CLOSE_BRACE, LEX_COMMA, LEX_TEXT, LEX_MOD,
-    LEX_BREAK, LEX_DO
+    LEX_BREAK, LEX_DO, LEX_LOGIC
 };
 
 struct Error {
@@ -81,18 +79,14 @@ public:
 
     bool operator == (const string &s) const { return (Name == s); } //именно его и не хватало для работы put и find
     string Get_Name() const { return Name; }
-
     bool Get_Declare() const { return Declare; }
-
     bool Get_Assign() const { return Assign; }
-
     void Make_Declared() { Declare = true; }
-
     void Make_Assigned() { Assign = true; }
-
     int Get_Value() const { return Value; }
-
     void Set_Value(int V) { Value = V; }
+    Lex_Type Get_Type() const { return Type; }
+    void Set_Type(Lex_Type LT){ Type = LT; }
 };
 
 class Lex {
@@ -134,10 +128,8 @@ public:
     }
 
     ~Scanner() { if (Text != NULL) fclose(Text); }
-
     //void Scan();
     Lex Get_Lex();
-
     static string TW[], TD[];    //TW - таблица служебных слов, TD- таблица ограничителей
     bool Belongs_to_TD(char c);
 };
@@ -156,32 +148,11 @@ class Parser {
     Lex_Type Current_Type;
     int Current_Value;
     Scanner Scan;
-
-    //stack <int> Stack_Int;
     void Program(); //program
     void Initialisation();
     void Operator();
-    void Expression();
-    //void D();
-
-    //void B();
-
-    //void S();
-
-    //void E();
-
-    //void E1();
-
-    //void T();
-
-    //void F();
-
-    //void L();
-
-    //void I();
-
-    //void N();
-
+    void Expression(); //простые выражения без скобок
+    void Complex_Expression(); //
     void Get_Lexeme() { //такое название-чтобы не путать с Get_Lex
         Current_Lex = Scan.Get_Lex(); //получаем саму лексему. как с gc
         Current_Type = Current_Lex.Get_Lex_Type();
@@ -204,8 +175,10 @@ void Parser::Analyse() {
 void Parser::Program() {
     if (Current_Type == LEX_BEGIN)
         Get_Lexeme();
-    else
+    else{
+        Output_Error_String();
         throw Current_Lex;
+    }
     if (Current_Type == LEX_OPEN_BRACKET) //по синтаксису после program идет открывающая скобка
         Get_Lexeme(); //то есть если все в порядке, переходим на лексему за открывающей скобкой
     else{
@@ -230,6 +203,7 @@ void Parser::Initialisation() {
                     {
                         Number = Current_Lex.Get_Lex_Value(); //получаем номер соответствующего ИДЕНТИФИКАТОРА в таблице TID
                         TID[Number].Make_Declared(); //переменная уже объявлена
+                        TID[Number].Set_Type(LEX_NUM); //указываем, что это-целое число
                         Get_Lexeme(); //лексема-идентификатор
                         if (Current_Type == LEX_ASSIGN) {
                             Get_Lexeme(); //значение, которое будет присвоено
@@ -255,6 +229,7 @@ void Parser::Initialisation() {
                     if (Current_Type == LEX_ID) {
                         Number = Current_Lex.Get_Lex_Value();
                         TID[Number].Make_Declared();
+                        TID[Number].Set_Type(LEX_LOGIC);
                         Get_Lexeme();
                         if (Current_Type == LEX_ASSIGN) {
                             Get_Lexeme();
@@ -285,6 +260,7 @@ void Parser::Initialisation() {
                     if (Current_Type == LEX_ID) {
                         Number = Current_Lex.Get_Lex_Value(); //пока получаем просто номер идентификатора, а не строки
                         TID[Number].Make_Declared();
+                        TID[Number].Set_Type(LEX_TEXT);
                         Get_Lexeme();
                         if (Current_Type == LEX_ASSIGN) {
                             Get_Lexeme();
@@ -310,34 +286,95 @@ void Parser::Initialisation() {
             default:
                 Identified = false;
         }
-        Get_Lexeme();
+        if (Identified) Get_Lexeme();
     }
 }
 
 void Parser::Operator(){
     switch(Current_Type){
-        case LEX_IF:
+        case LEX_IF: //остнвные скобки обрабатываем здесь, так как только они-обязательные
             Get_Lexeme();
+            if (Current_Type != LEX_OPEN_BRACE){
+                cout << "Unopened brace in if\n";
+                Output_Error_String();
+                throw Current_Lex;
+            }
             Expression();
+            if (Current_Type != LEX_CLOSE_BRACE){
+                cout << "Unclosed brace in if\n";
+                Output_Error_String();
+                throw Current_Lex;
+            }
+            break;
+        default:
+            cout << "No if\n";
             break;
     }
 }
 
 void Parser::Expression() {
     Lex_Type First_Type; //тип первого операнда. Для проверки корректности сравнения
+    Lex_Type Second_Type; //тип второго операнда. Для константы узнаем просто, а для идентификатора-через TID
     switch (Current_Type){
-        case LEX_ID:
-            //First_Type = TID[Current_Lex.Get_Lex_Value()] //тут надо получить тип переменной
+        case LEX_OPEN_BRACE:
+            Lex_Type T;
+            Get_Lexeme();
+            Expression();
+            T = Current_Type; //запоминаем тип выражения внутри скобок
+            cout << "T = " << T << endl;
+            //Get_Lexeme();
+            if (Current_Type != LEX_CLOSE_BRACE){
+                cout << Current_Lex;
+                cout << "Error! Unclosed brace in logical expression!\n";
+                throw Current_Lex;
+            }
+            Current_Type = T;
+            //Get_Lexeme(); //пропускаем закрывающие скобки
+            break;
+        case LEX_NOT:
+            Get_Lexeme(); //ошибка возможна только в самом выражении. not тут не при чем
+            Expression();
+            break;
+        case LEX_ID: //если первый-идентификатор, то второй-тоже или идентификатор или константа. Но не выражение. a >= (a or b) -ошибка
+            First_Type = TID[Current_Lex.Get_Lex_Value()].Get_Type(); //тут надо получить тип переменной
             if (!TID[Current_Lex.Get_Lex_Value()].Get_Assign()){
                 cout << "Error! This operand has no value\n";
                 Output_Error_String();
                 throw Current_Lex;
             }
             Get_Lexeme();
-            if (Current_Type == LEX_EQ){
-                Get_Lexeme();
-                if (Current_Type == LEX_NUM)
+            if (Current_Type == LEX_OPEN_BRACE)
+                Expression();
+            if (Current_Type == LEX_CLOSE_BRACE){
+                Current_Type = First_Type; // (a)- того же типа, что и просто a
+                break;
             }
+            if ( (Current_Type == LEX_EQ) || (Current_Type == LEX_GEQ) || (Current_Type == LEX_NEQ)
+             || (Current_Type == LEX_G) || (Current_Type == LEX_L) ){
+                Get_Lexeme();
+                if (Current_Type == LEX_ID) //если это идентификатор, тип добываем через TID
+                    Second_Type = TID[Current_Lex.Get_Lex_Value()].Get_Type();
+                else{
+                    if (Current_Type == LEX_OPEN_BRACE) //получаем тип выражения внутри скобок
+                        Expression();
+                    Second_Type = Current_Type;
+                }
+                cout << First_Type << ' ' << Second_Type << endl;
+                if (Second_Type != First_Type){ //проверка по таблице на соответствие типов
+                    cout << "Error! Incomparable types\n";
+                    Output_Error_String();
+                    throw Current_Lex;
+                }
+                Current_Type = LEX_LOGIC; //провели операцию сравнения, значит, текущий тип-логический
+            }
+            else{
+                cout << "Wrong operand in logical expression\n";
+                Output_Error_String();
+                throw Current_Lex;
+            }
+            //Get_Lexeme(); //переход к следующей лексеме
+            break;
+
     }
 }
 
@@ -409,6 +446,7 @@ ostream &operator<<(ostream &out, const Lex &L) {
         cout << ' ' << L.Lex_Value;
     if (L.Type == LEX_TEXT)
         cout << ' ' << TS[L.Lex_Value];
+    cout << ' ' << L.Get_Lex_Type();
     cout << endl;
     return out;
 }
@@ -635,6 +673,6 @@ int main() {
     }
     cout << "Syntax analyses was completed successfully!\n\n";
     for (int i = 0; i < TID.size(); i++)
-        cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' ' << TID[i].Get_Declare() << endl;
+        cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' ' << TID[i].Get_Declare() << ' ' << TID[i].Get_Type() << endl;
     return 0;
 }
