@@ -3,12 +3,12 @@
 #include <vector>
 #include <algorithm>
 #include <string>
+#include <stack>
+#include <ctype.h>
 
-//Beta-1.4 Добавлено распознавание типов переменных и констант для корректного сравнения
-//добавлена работа со скобками в логических выражениях
-//всегда функция считываем лишнюю лексему, а для слкдующей функции эта лексема явлается начальной
-
-//хотя бы на базовом уровне скобки работают
+//Beta-1.5. полностью переделана, основа-вариант из лекций. Добавить проверку на поыторную инициализацию
+//переменной. Это есть в примере, но тут инициализация-своя
+//внимание на комментарии. Многое написано с косталями или недописано
 using namespace std;
 
 FILE *Text;
@@ -19,11 +19,11 @@ void Output_Error_String(){ //вызывается только при обна�
         c = fgetc(Text);
         if ( (ftell(Text) > 1) && (c != '\n') && (c != EOF) )
             fseek(Text, -2 * sizeof(char), SEEK_CUR); //переходим на начало ошибочной строки
-            else
-                break; //в таком случае в c уже считан первый символ первой строки
+        else
+            break; //в таком случае в c уже считан первый символ первой строки
     }
     while ( (c == '\n') || (c == '\t') || (c == ' ') )
-      c = fgetc(Text);
+        c = fgetc(Text);
     while ( (c != '\n') && (c != EOF) ){
         cout << c;
         c = fgetc(Text);
@@ -115,10 +115,9 @@ class Scanner {
         Division
     };
     State CurrentState;
-    const char *Name = "Test1.txt";
 public:
     friend void Output_Error_String();
-    Scanner() //в конструкторе сразу открываем файл
+    Scanner(const char *Name = "Test1.txt") //в конструкторе сразу открываем файл
     {
         CurrentState = Beginning;
         Finish = false; //если наткнулись на символ конца файла-собачку
@@ -144,52 +143,42 @@ string Scanner::TD[] = {"", ";", "@", ",", ":", "=", "(", ")", "<", ">", "+",
 string Scanner::TW[] = {"", "and", "boolean", "else", "if", "false", "int", "not", "or",
                         "program", "read", "true", "while", "write", "string", "break", "do", "END_OF_ARRAY"};
 
-class Parser {
+class Parser{
     Lex Current_Lex;
     Lex_Type Current_Type;
     int Current_Value;
     Scanner Scan;
-    void Program(); //program
+    stack<Lex_Type> Lex_Stack; //стек с типами выражений. без него не получается
+    void Program();
+    void B();
+    void S();
+    void E();
+    void E1();
+    void T();
+    void F();
+    void eq_bool();
+    void check_op();
+    void check_id();
+    void check_not();
     void Initialisation();
-    void Operator();
-    void Expression(); //простые выражения без скобок
-    void Complex_Expression(); //
-    void Get_Lexeme() { //такое название-чтобы не путать с Get_Lex
-        Current_Lex = Scan.Get_Lex(); //получаем саму лексему. как с gc
+    void Get_Lexeme(){
+        Current_Lex = Scan.Get_Lex();
         Current_Type = Current_Lex.Get_Lex_Type();
         Current_Value = Current_Lex.Get_Lex_Value();
-    }
-
+    };
 public:
+    Parser(const char *Text):Scan(Text){} //конструктор по умолчанию
     void Analyse();
 };
 
-void Parser::Analyse() {
-    Get_Lexeme(); //получаем лексему. сейчас-самое начало
+void Parser::Analyse(){
+    Get_Lexeme();
     Program();
-    if (Current_Type != LEX_FIN) {
-        //throw Current_Lex; //если проанализировали программу и итоговая лексема-не LEX_FIN - это ошибка
-        cout << "Program error\n";
-    }
-}
-
-void Parser::Program() {
-    if (Current_Type == LEX_BEGIN)
-        Get_Lexeme();
-    else{
+    if (Current_Type != LEX_FIN){
+        cout << "Error! Not finished!\n";
         Output_Error_String();
         throw Current_Lex;
     }
-    if (Current_Type == LEX_OPEN_BRACKET) //по синтаксису после program идет открывающая скобка
-        Get_Lexeme(); //то есть если все в порядке, переходим на лексему за открывающей скобкой
-    else{
-        Output_Error_String();
-        throw Current_Lex;
-    }
-    Initialisation(); //инициализация переменных
-    if (Current_Type == LEX_SEMICOLON)
-        Get_Lexeme();
-    Operator();
 }
 
 void Parser::Initialisation() {
@@ -291,105 +280,164 @@ void Parser::Initialisation() {
     }
 }
 
-void Parser::Operator(){
-    switch(Current_Type){
-        case LEX_IF: //остнвные скобки обрабатываем здесь, так как только они-обязательные
+void Parser::Program() {
+    if (Current_Type == LEX_BEGIN)
+        Get_Lexeme();
+    else{
+        cout << "Error! Program begins with something wrong\n";
+        Output_Error_String();
+        throw Current_Lex;
+    }
+    Initialisation(); //инициализировали все нужные переменные
+    if (Current_Type == LEX_SEMICOLON)
+        Get_Lexeme();
+    else {
+        cout << "Error1!\n";
+        Output_Error_String();
+        throw Current_Lex;
+    }
+    B();
+}
+
+void Parser::B(){
+    if (Current_Type == LEX_OPEN_BRACKET){
+        Get_Lexeme();
+        S();
+        while (Current_Type == LEX_SEMICOLON){
             Get_Lexeme();
-            if (Current_Type != LEX_OPEN_BRACE){
-                cout << "Unopened brace in if\n";
-                Output_Error_String();
-                throw Current_Lex;
-            }
+            S();
+        }
+        if (Current_Type == LEX_CLOSE_BRACKET)
             Get_Lexeme();
-            Expression();
-            //Get_Lexeme();
-            if (Current_Lex.Get_Lex_Type() != LEX_CLOSE_BRACE){
-                cout << "Unclosed brace in if\n";
-                Output_Error_String();
-                throw Current_Lex;
-            }
-            break;
-        default:
-            cout << "No if\n";
-            break;
+        else{
+            cout << "Error in B\n";
+            Output_Error_String();
+            throw Current_Lex;
+        }
+    }
+    else {
+        cout << "Error in B\n";
+        Output_Error_String();
+        throw Current_Lex;
     }
 }
 
-void Parser::Expression() {
-    Lex_Type First_Type; //тип первого операнда. Для проверки корректности сравнения
-    Lex_Type Second_Type; //тип второго операнда. Для константы узнаем просто, а для идентификатора-через TID
-    switch (Current_Type){
-        case LEX_OPEN_BRACE:
-            Lex_Type T;
-            Get_Lexeme();
-            //T = Current_Type;
-            Expression();
-            T = Current_Type; //запоминаем тип выражения внутри скобок
-            //Get_Lexeme();
-            cout << Current_Type << endl;
-            if (Current_Lex.Get_Lex_Type() != LEX_CLOSE_BRACE){
-                cout << Current_Lex;
-                cout << "Error! Unclosed brace in logical expression!\n";
-                throw Current_Lex;
-            }
-            Current_Type = T;
-            //Get_Lexeme();
-            break;
-        case LEX_NOT:
-            Get_Lexeme(); //ошибка возможна только в самом выражении. not тут не при чем
-            Expression();
-            Get_Lexeme();
-            break;
-        case LEX_ID: //если первый-идентификатор, то второй-тоже или идентификатор или константа. Но не выражение. a >= (a or b) -ошибка
-            if (Current_Type == LEX_OPEN_BRACE){
-                //Get_Lexeme();
-                Expression();
-            } //первый в сравнении-только идентификатор. по крайней мере, настоящий Си иначе не позволяет
-            First_Type = TID[Current_Lex.Get_Lex_Value()].Get_Type(); //тут надо получить тип переменной. После n-го числа скобок всегда идет переменная
-            if (!TID[Current_Lex.Get_Lex_Value()].Get_Assign()){
-                cout << "Error! This operand has no value\n";
-                Output_Error_String();
-                throw Current_Lex;
-            }
-            Get_Lexeme();
-            if (Current_Type == LEX_CLOSE_BRACE){
-                Current_Type = Current_Lex.Get_Lex_Type();
-                break;
-            }
-            if ( (Current_Type == LEX_EQ) || (Current_Type == LEX_GEQ) || (Current_Type == LEX_NEQ) || (Current_Type == LEX_G) || (Current_Type == LEX_L) ){
-                Get_Lexeme();
-                if (Current_Type == LEX_OPEN_BRACE) { //получаем тип выражения внутри скобок
-                    //std::cout << Current_Type;
-                    Expression();
-                    //Second_Type = Current_Type;
-                }
-                if (Current_Type == LEX_ID) //если это идентификатор, тип добываем через TID
-                    Second_Type = TID[Current_Lex.Get_Lex_Value()].Get_Type();
-                else
-                    Second_Type = Current_Type;
-                Get_Lexeme();
-                if (Current_Type == LEX_CLOSE_BRACE){
-                    Current_Type = Current_Lex.Get_Lex_Type();
-                    break;
-                }
-                cout << First_Type << ' ' << Second_Type << endl;
-                if (Second_Type != First_Type){ //проверка по таблице на соответствие типов
-                    cout << "Error! Incomparable types\n";
-                    Output_Error_String();
-                    throw Current_Lex;
-                }
-                Current_Type = LEX_LOGIC; //провели операцию сравнения, значит, текущий тип-логический
-            }
-            else{
-                cout << "Wrong operand in logical expression\n";
-                Output_Error_String();
-                throw Current_Lex;
-            }
-            Get_Lexeme(); //переход к следующей лексеме
-            break;
-
+void Parser::S(){ //недописана, недоразобрана
+    int p10,p11,p12,p13;
+    if (Current_Type == LEX_IF){
+        Get_Lexeme();
+        E();
+        eq_bool();
     }
-    //Get_Lexeme();
+}
+
+void Parser::E(){
+    E1();
+    if ( (Current_Type == LEX_EQ) || (Current_Type == LEX_NEQ) || (Current_Type == LEX_G) || (Current_Type == LEX_L) ||
+         (Current_Type == LEX_LEQ) || (Current_Type == LEX_GEQ) ){
+        Lex_Stack.push(Current_Type); //запоминаем текцщий тип в стеке. Для адекватной проверки на сравнимость типов
+        Get_Lexeme();
+        E1();
+        check_op();
+    }
+}
+
+void Parser::E1(){
+    T();
+    while ( (Current_Type == LEX_ADD) || (Current_Type == LEX_SUBTRACT) || (Current_Type == LEX_OR) ){
+        Lex_Stack.push(Current_Type);
+        Get_Lexeme();
+        T();
+        check_op();
+    }
+}
+
+void Parser::T(){
+    F();
+    while ( (Current_Type == LEX_DIVIDE) || (Current_Type == LEX_MULTIPLY) || (Current_Type == LEX_AND) ){
+        Lex_Stack.push(Current_Type);
+        Get_Lexeme();
+        F();
+        check_op();
+    }
+}
+
+void Parser::F(){
+    if (Current_Type == LEX_ID){
+        check_id();
+        Get_Lexeme();
+    }
+    else if (Current_Type == LEX_NUM){
+        Lex_Stack.push(LEX_INT); //////////////////////////////////////////////////может быть, нужно LEX_NUM, с уже существующей то спецификой программы?
+        Get_Lexeme();
+    }
+    else if (Current_Type == LEX_TRUE){
+        Lex_Stack.push(LEX_LOGIC);
+        Get_Lexeme();
+    }
+    else if (Current_Type == LEX_FALSE){
+        Lex_Stack.push(LEX_LOGIC);
+        Get_Lexeme();
+    }
+    else if (Current_Type == LEX_NOT){
+        Get_Lexeme();
+        F();
+        check_not();
+    }
+    else if (Current_Type == LEX_OPEN_BRACE){
+        Get_Lexeme();
+        E();
+        if (Current_Type == LEX_CLOSE_BRACE)
+            Get_Lexeme();
+        else{
+            cout << "Error! Unclosed brace!\n";
+            Output_Error_String();
+            throw Current_Lex;
+        }
+    }
+    else{
+        cout << "Unknown error!\n";
+        Output_Error_String();
+        throw Current_Lex;
+    }
+}
+
+void Parser::check_id() {
+    if (TID[Current_Value].Get_Declare()) //уже объявлено
+        Lex_Stack.push(TID[Current_Value].Get_Type());
+    else{
+        cout << "Not declared!\n";
+        Output_Error_String();
+        throw "not declared";
+    }
+}
+
+void Parser::check_op(){
+    Lex_Type T1, T2, Operation, T = LEX_NUM, Res_Type = LEX_LOGIC;
+    T2 = Lex_Stack.top(); //извлечение верхнего элемента стека в переменную T2
+    Lex_Stack.pop();
+
+    Operation = Lex_Stack.top();
+    Lex_Stack.pop();
+
+    T1 = Lex_Stack.top();
+    Lex_Stack.pop();
+
+    if ( (Operation == LEX_ADD) || (Operation == LEX_SUBTRACT) || (Operation == LEX_MULTIPLY) || (Operation == LEX_DIVIDE) )
+        Res_Type = LEX_NUM;
+    if ( (Operation == LEX_OR) || (Operation == LEX_AND) )
+        T = LEX_LOGIC;
+    if ( (T1 == T2) && (T1 == T) )
+        Lex_Stack.push(Res_Type);
+    else{
+        cout << "Wrong types of parameters\n";
+        Output_Error_String();
+        throw "wrong parameters";
+    }
+}
+
+void Parser::check_not() {
+    1 = 2;
 }
 
 int Put_String(string &Str) {
@@ -665,8 +713,8 @@ bool Scanner::Belongs_to_TD(char c) {  //проверка, является ли
 
 int main() {
     try {
-        Parser P1;
-        P1.Analyse();
+        //Parser P1;
+        //P1.Analyse();
     }
     catch (Error E1) {
         if (E1.Type == Error::WRONG_CHARACTER) cout << "Error: Wrong character: " << E1.c << endl;
