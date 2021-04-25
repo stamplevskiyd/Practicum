@@ -6,25 +6,29 @@
 #include <stack>
 #include <ctype.h>
 
-//Beta-1.5. полностью переделана, основа-вариант из лекций. Добавить проверку на поыторную инициализацию
-//переменной. Это есть в примере, но тут инициализация-своя
-//внимание на комментарии. Многое написано с косталями или недописано
+//Beta-1.6
+//выражение вида if ( a >= b or x == y ) просто не обработать рекурсивным спуском. Никак. После or надо заглядывать
+//дальше, чем на x, так как иначе тип будет как у x, а не логический. Так что тут даже править пока нечего, это только ПОЛИЗ-ом
+//а если добавить скобки-уже другое дело, скобка подразумевает переход к выражению
+
+//Первая рабочая версия лексического анализатора. Есть пара багов с выводом ошибки, но вроде работает
+//баги-в основном при незакрытии скобок. вопрос-считать ли их вообще багами? Как понять, это отсутствие скобки или кривое продолжение строки?
 using namespace std;
 
 FILE *Text;
 
-void Output_Error_String(){ //вызывается только при обнаружении ошибки, так что все равно, куда в файле мы перейдем
+void Output_Error_String() { //вызывается только при обнаружении ошибки, так что все равно, куда в файле мы перейдем
     char c = fgetc(Text);
-    while ( (c != '\n') && (ftell(Text) != 0) ) {
+    while ((c != '\n') && (ftell(Text) != 0)) {
         c = fgetc(Text);
-        if ( (ftell(Text) > 1) && (c != '\n') && (c != EOF) )
+        if ((ftell(Text) > 1) && (c != '\n') && (c != EOF))
             fseek(Text, -2 * sizeof(char), SEEK_CUR); //переходим на начало ошибочной строки
         else
             break; //в таком случае в c уже считан первый символ первой строки
     }
-    while ( (c == '\n') || (c == '\t') || (c == ' ') )
+    while ((c == '\n') || (c == '\t') || (c == ' '))
         c = fgetc(Text);
-    while ( (c != '\n') && (c != EOF) ){
+    while ((c != '\n') && (c != EOF)) {
         cout << c;
         c = fgetc(Text);
     }
@@ -46,8 +50,8 @@ enum Lex_Type {
 struct Error {
     enum Error_type {
         WRONG_IDENTIFIER, UNKNOWN_ERROR,
-        UNCLOSED_BRACKET, UNCLOSED_BRACE, UNCLOSED_COMMENT, WRONG_CHARACTER,
-        UNOPENED_COMMENT, UNOPENED_BRACKET, UNOPENED_BRACE, UNCLOSED_STRING
+        UNCLOSED_COMMENT, WRONG_CHARACTER,
+        UNOPENED_COMMENT, UNCLOSED_STRING
     };
     Error(Error_type T, string str) : Type(T), Wrong_Lex(str) {};
     Error(Error_type T, char C1 = '0') : Type(T), c(C1) {};
@@ -69,7 +73,6 @@ public:
         Type = LEX_NULL;
         Value = 0;
     }
-
     Ident(const string &N) {
         Type = LEX_NULL;
         Value = 0;
@@ -77,8 +80,7 @@ public:
         Assign = false;
         Declare = false;
     }
-
-    bool operator == (const string &s) const { return (Name == s); } //именно его и не хватало для работы put и find
+    bool operator==(const string &s) const { return (Name == s); } //именно его и не хватало для работы put и find
     string Get_Name() const { return Name; }
     bool Get_Declare() const { return Declare; }
     bool Get_Assign() const { return Assign; }
@@ -87,7 +89,7 @@ public:
     int Get_Value() const { return Value; }
     void Set_Value(int V) { Value = V; }
     Lex_Type Get_Type() const { return Type; }
-    void Set_Type(Lex_Type LT){ Type = LT; }
+    void Set_Type(Lex_Type LT) { Type = LT; }
 };
 
 class Lex {
@@ -98,7 +100,6 @@ public:
         Type = T;
         Lex_Value = V;
     }
-
     Lex_Type Get_Lex_Type() const { return Type; }
     int Get_Lex_Value() const { return Lex_Value; }
     friend ostream &operator<<(ostream &out, const Lex &L); //перегрузка вывода лексемы. Нужно хотя бы для проверки
@@ -126,9 +127,7 @@ public:
             throw "File_Error";
         }
     }
-
     ~Scanner() { if (Text != NULL) fclose(Text); }
-    //void Scan();
     Lex Get_Lex();
     static string TW[], TD[];    //TW - таблица служебных слов, TD- таблица ограничителей
     bool Belongs_to_TD(char c);
@@ -136,14 +135,13 @@ public:
 
 vector<Ident> TID; //таблица идентификаторов
 vector<string> TS; //таблица строк. чтобы получить строку, обращаемся к ее индексу в таблице
-
 string Scanner::TD[] = {"", ";", "@", ",", ":", "=", "(", ")", "<", ">", "+",
                         "-", "*", "/", "<=", ">=", "!=", "{", "}", "%",
                         "END_OF_ARRAY"}; //END_OF_ARRAY- для более простой реализации поиска
 string Scanner::TW[] = {"", "and", "boolean", "else", "if", "false", "int", "not", "or",
                         "program", "read", "true", "while", "write", "string", "break", "do", "END_OF_ARRAY"};
 
-class Parser{
+class Parser {
     Lex Current_Lex;
     Lex_Type Current_Type;
     int Current_Value;
@@ -156,28 +154,28 @@ class Parser{
     void E1();
     void T();
     void F();
+    void Initialisation();
     void eq_bool();
     void check_op();
     void check_id();
     void check_not();
-    void Initialisation();
-    void Get_Lexeme(){
+    void eq_type();
+    void check_id_in_read();
+    void Get_Lexeme() {
         Current_Lex = Scan.Get_Lex();
         Current_Type = Current_Lex.Get_Lex_Type();
         Current_Value = Current_Lex.Get_Lex_Value();
     };
 public:
-    Parser(const char *Text):Scan(Text){} //конструктор по умолчанию
+    Parser(const char *Name) : Scan(Name) {} //конструктор по умолчанию
     void Analyse();
 };
 
-void Parser::Analyse(){
+void Parser::Analyse() {
     Get_Lexeme();
     Program();
-    if (Current_Type != LEX_FIN){
-        cout << "Error! Not finished!\n";
-        Output_Error_String();
-        throw Current_Lex;
+    if (Current_Type != LEX_FIN) {
+        throw "Error! Not finished";
     }
 }
 
@@ -202,14 +200,12 @@ void Parser::Initialisation() {
                                 TID[Number].Make_Assigned(); //указываем, что он уже был присвоен
                             }
                         }
-                        else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)){
-                            Output_Error_String();
-                            throw Current_Lex;
+                        else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                            throw "Wrong int initialisation";
                         } //в случае, если  при отсутствии значения идет что-то лишнее
                     }
-                    else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)){
-                        Output_Error_String();
-                        throw Current_Lex;
+                    else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                        throw "Wrong int initialisation";
                     } //для случая int a, ...
                 }
                 break;
@@ -228,19 +224,16 @@ void Parser::Initialisation() {
                                 TID[Number].Set_Value(1); //вообще-то это колхоз. надо бы переделать
                             else if (Current_Type == LEX_FALSE)
                                 TID[Number].Set_Value(0);
-                            else{
-                                Output_Error_String();
-                                throw Current_Lex;
+                            else {
+                                throw "Wrong boolean initialisation";
                             }
                         }
-                        else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)){
-                            Output_Error_String();
-                            throw Current_Lex;
+                        else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                            throw "Wrong boolean initialisation";
                         } //в случае, если  при отсутствии значения идет что-то лишнее
                     }
-                    else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)){
-                        Output_Error_String();
-                        throw Current_Lex;
+                    else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                        throw "Wrong boolean initialisation";
                     }
                 }
                 break;
@@ -257,19 +250,14 @@ void Parser::Initialisation() {
                             TID[Number].Make_Assigned();
                             if (Current_Type == LEX_TEXT)
                                 TID[Number].Set_Value(Current_Lex.Get_Lex_Value()); //у строковой лексемы номер отвечает за позицию в другой табблице. И обработка такая же, как и у int
-                            else{
-                                Output_Error_String();
-                                throw Current_Lex;
+                            else {
+                                throw "Wrong string initialisation";
                             }
-                        }
-                        else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)){
-                            Output_Error_String();
-                            throw Current_Lex;
+                        } else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                            throw "Wrong string initialisation";
                         } //в случае, если  при отсутствии значения идет что-то лишнее
-                    }
-                    else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)){
-                        Output_Error_String();
-                        throw Current_Lex;
+                    } else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                        throw "Wrong string initialisation";
                     };
                 }
                 break;
@@ -283,58 +271,135 @@ void Parser::Initialisation() {
 void Parser::Program() {
     if (Current_Type == LEX_BEGIN)
         Get_Lexeme();
-    else{
-        cout << "Error! Program begins with something wrong\n";
-        Output_Error_String();
-        throw Current_Lex;
+    else {
+        throw "Error! Program begins with something wrong";
+    }
+    if (Current_Type == LEX_OPEN_BRACKET)
+        Get_Lexeme();
+    else {
+        throw "Opening bracket is lost";
     }
     Initialisation(); //инициализировали все нужные переменные
-    if (Current_Type == LEX_SEMICOLON)
-        Get_Lexeme();
-    else {
-        cout << "Error1!\n";
-        Output_Error_String();
-        throw Current_Lex;
-    }
+    S();
     B();
+    if (Current_Type == LEX_CLOSE_BRACKET)
+        Get_Lexeme();
+    else throw "Error! Final bracket is lost";
 }
 
-void Parser::B(){
-    if (Current_Type == LEX_OPEN_BRACKET){
+void Parser::B() {
+    while ( (Current_Type == LEX_SEMICOLON) && (Current_Type != LEX_FIN) ){
         Get_Lexeme();
         S();
-        while (Current_Type == LEX_SEMICOLON){
-            Get_Lexeme();
-            S();
-        }
-        if (Current_Type == LEX_CLOSE_BRACKET)
-            Get_Lexeme();
-        else{
-            cout << "Error in B\n";
-            Output_Error_String();
-            throw Current_Lex;
-        }
-    }
-    else {
-        cout << "Error in B\n";
-        Output_Error_String();
-        throw Current_Lex;
     }
 }
 
-void Parser::S(){ //недописана, недоразобрана
-    int p10,p11,p12,p13;
-    if (Current_Type == LEX_IF){
+void Parser::S() { //недописана, недоразобрана
+    if (Current_Type == LEX_IF) {
         Get_Lexeme();
-        E();
+        E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
-    }
+        if (Current_Type == LEX_OPEN_BRACKET) {
+            while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
+                Get_Lexeme();
+                S();
+            }
+            if (Current_Type != LEX_CLOSE_BRACKET)
+                throw "Error! Unclosed bracket";
+            else
+                Get_Lexeme(); //переход на else
+        }
+        else
+            S(); //иначе-одна простая строка
+        if (Current_Type != LEX_ELSE)
+            throw "Error! Else is lost";
+        else{
+            Get_Lexeme(); //переходим на то, что после else
+            if (Current_Type == LEX_OPEN_BRACKET) {
+                while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
+                    Get_Lexeme();
+                    S();
+                }
+                if (Current_Type != LEX_CLOSE_BRACKET)
+                    throw "Error! Unclosed bracket";
+            }
+            else
+                S();
+        }
+        S(); //переход на следующее действие
+    } //end if
+    else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
+        Get_Lexeme();
+        E();  //проверка выражения и проверка на то, явлается ли его результат логическим
+        eq_bool();
+        if (Current_Type == LEX_OPEN_BRACKET) {
+            while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
+                Get_Lexeme();
+                S();
+            }
+            if (Current_Type != LEX_CLOSE_BRACKET)
+                throw "Error! Unclosed bracket";
+            else
+                Get_Lexeme(); //переход на else
+        }
+        else
+            S(); //иначе-одна простая строка
+        S(); //после выполнения while переходим на следующее действие
+    } // end while
+    else if (Current_Type == LEX_READ) {
+        Get_Lexeme();
+        if (Current_Type == LEX_OPEN_BRACE) {
+            Get_Lexeme();
+            if (Current_Type == LEX_ID) {
+                check_id_in_read();
+                Get_Lexeme();
+            } else throw "Error! Reading not an identifier";
+            if (Current_Type == LEX_CLOSE_BRACE)
+                Get_Lexeme();
+            else throw "Error! No close brace while reading";
+        } else throw "Reading error";
+    } //end read
+    else if (Current_Type == LEX_WRITE) {
+        Get_Lexeme();
+        if (Current_Type == LEX_OPEN_BRACE) {
+            Get_Lexeme();
+            E();
+            while  (Current_Type == LEX_COMMA){ //так как переменных может быть несколько, через запятую
+                Get_Lexeme();
+                E();
+                if (Current_Type == LEX_FIN)
+                    throw "Error! Unclosed write";
+            }
+            if (Current_Type == LEX_CLOSE_BRACE)
+                Get_Lexeme();
+            else {
+                throw "Error! Unclosed write";
+            }
+        }
+        else {
+            throw "Error! Unclosed write";
+        }
+    } //end write
+    else if (Current_Type == LEX_ID) {
+        check_id();
+        Get_Lexeme();
+        if (Current_Type != LEX_ASSIGN)
+            throw "Error! Wrong action with identifier";
+        else
+        while (Current_Type == LEX_ASSIGN) {
+            Get_Lexeme();
+            E();
+            eq_type();
+        }
+    } //assign end
+    else
+        B();
 }
 
-void Parser::E(){
+void Parser::E() {
     E1();
-    if ( (Current_Type == LEX_EQ) || (Current_Type == LEX_NEQ) || (Current_Type == LEX_G) || (Current_Type == LEX_L) ||
-         (Current_Type == LEX_LEQ) || (Current_Type == LEX_GEQ) ){
+    if ((Current_Type == LEX_EQ) || (Current_Type == LEX_NEQ) || (Current_Type == LEX_G) || (Current_Type == LEX_L) ||
+        (Current_Type == LEX_LEQ) || (Current_Type == LEX_GEQ)) {
         Lex_Stack.push(Current_Type); //запоминаем текцщий тип в стеке. Для адекватной проверки на сравнимость типов
         Get_Lexeme();
         E1();
@@ -342,9 +407,9 @@ void Parser::E(){
     }
 }
 
-void Parser::E1(){
+void Parser::E1() {
     T();
-    while ( (Current_Type == LEX_ADD) || (Current_Type == LEX_SUBTRACT) || (Current_Type == LEX_OR) ){
+    while ((Current_Type == LEX_ADD) || (Current_Type == LEX_SUBTRACT) || (Current_Type == LEX_OR)) {
         Lex_Stack.push(Current_Type);
         Get_Lexeme();
         T();
@@ -352,9 +417,9 @@ void Parser::E1(){
     }
 }
 
-void Parser::T(){
+void Parser::T() {
     F();
-    while ( (Current_Type == LEX_DIVIDE) || (Current_Type == LEX_MULTIPLY) || (Current_Type == LEX_AND) ){
+    while ((Current_Type == LEX_DIVIDE) || (Current_Type == LEX_MULTIPLY) || (Current_Type == LEX_AND)) {
         Lex_Stack.push(Current_Type);
         Get_Lexeme();
         F();
@@ -362,58 +427,61 @@ void Parser::T(){
     }
 }
 
-void Parser::F(){
-    if (Current_Type == LEX_ID){
+void Parser::F() {
+    if (Current_Type == LEX_ID) {
         check_id();
         Get_Lexeme();
     }
-    else if (Current_Type == LEX_NUM){
-        Lex_Stack.push(LEX_INT); //////////////////////////////////////////////////может быть, нужно LEX_NUM, с уже существующей то спецификой программы?
+    else if (Current_Type == LEX_NUM) {
+        Lex_Stack.push(LEX_NUM);
         Get_Lexeme();
     }
-    else if (Current_Type == LEX_TRUE){
+    else if (Current_Type == LEX_TEXT) {
+        Lex_Stack.push(LEX_TEXT);
+        Get_Lexeme();
+    }
+    else if (Current_Type == LEX_TRUE) {
         Lex_Stack.push(LEX_LOGIC);
         Get_Lexeme();
     }
-    else if (Current_Type == LEX_FALSE){
+    else if (Current_Type == LEX_FALSE) {
         Lex_Stack.push(LEX_LOGIC);
         Get_Lexeme();
     }
-    else if (Current_Type == LEX_NOT){
+    else if (Current_Type == LEX_LOGIC) {
+        Lex_Stack.push(LEX_LOGIC);
+        Get_Lexeme();
+    }
+    else if (Current_Type == LEX_NOT) {
         Get_Lexeme();
         F();
         check_not();
     }
-    else if (Current_Type == LEX_OPEN_BRACE){
+    else if (Current_Type == LEX_OPEN_BRACE) {
         Get_Lexeme();
         E();
         if (Current_Type == LEX_CLOSE_BRACE)
             Get_Lexeme();
-        else{
-            cout << "Error! Unclosed brace!\n";
-            Output_Error_String();
-            throw Current_Lex;
+        else {
+            throw "Error! Unclosed brace";
         }
     }
-    else{
-        cout << "Unknown error!\n";
-        Output_Error_String();
-        throw Current_Lex;
+    else {
+        throw "Error!";
     }
 }
 
 void Parser::check_id() {
     if (TID[Current_Value].Get_Declare()) //уже объявлено
         Lex_Stack.push(TID[Current_Value].Get_Type());
-    else{
-        cout << "Not declared!\n";
-        Output_Error_String();
-        throw "not declared";
+    else {
+        throw "Error! Not declared";
     }
 }
 
-void Parser::check_op(){
-    Lex_Type T1, T2, Operation, T = LEX_NUM, Res_Type = LEX_LOGIC;
+void Parser::check_op() {
+    Lex_Type T1, T2, Operation, T, Res_Type;
+
     T2 = Lex_Stack.top(); //извлечение верхнего элемента стека в переменную T2
     Lex_Stack.pop();
 
@@ -423,21 +491,51 @@ void Parser::check_op(){
     T1 = Lex_Stack.top();
     Lex_Stack.pop();
 
-    if ( (Operation == LEX_ADD) || (Operation == LEX_SUBTRACT) || (Operation == LEX_MULTIPLY) || (Operation == LEX_DIVIDE) )
-        Res_Type = LEX_NUM;
-    if ( (Operation == LEX_OR) || (Operation == LEX_AND) )
-        T = LEX_LOGIC;
-    if ( (T1 == T2) && (T1 == T) )
+    if ((Operation == LEX_ADD) || (Operation == LEX_SUBTRACT) || (Operation == LEX_MULTIPLY) ||
+        (Operation == LEX_DIVIDE)) {
+        Res_Type = T = T1;
+    }
+    if ((Operation == LEX_OR) || (Operation == LEX_AND)) {
+        T = Res_Type = LEX_LOGIC;
+    }
+    if ((Operation == LEX_G) || (Operation == LEX_L) || (Operation == LEX_GEQ) ||
+        (Operation == LEX_LEQ) || (Operation == LEX_EQ) || (Operation == LEX_NEQ)) {
+        Res_Type = LEX_LOGIC;
+        T = T1;
+    }
+    if ((T1 == T2) && (T1 == T))
         Lex_Stack.push(Res_Type);
-    else{
-        cout << "Wrong types of parameters\n";
-        Output_Error_String();
-        throw "wrong parameters";
+    else {
+        throw "Error! Wrong types of parameters";
     }
 }
 
 void Parser::check_not() {
-    1 = 2;
+    if (Lex_Stack.top() != LEX_LOGIC) {
+        throw "Error! Not a logical expression in \"not\"";
+    }
+}
+
+void Parser::eq_type() {
+    Lex_Type T;
+    T = Lex_Stack.top();
+    Lex_Stack.pop();
+    if (T != Lex_Stack.top()) { //если типы на вершине стека не совпадают. то есть если в выражении разные типы
+        throw "Error! Wrong types\n";
+    }
+    Lex_Stack.pop(); //больше эти типы не нужны
+}
+
+void Parser::eq_bool() {
+    if (Lex_Stack.top() != LEX_LOGIC) {
+        throw "Error! Not a boolean expression\n";
+    }
+    Lex_Stack.pop();
+}
+
+void Parser::check_id_in_read() {
+    if (!TID[Current_Value].Get_Declare())
+        throw "Error! Not declared\n";
 }
 
 int Put_String(string &Str) {
@@ -713,28 +811,28 @@ bool Scanner::Belongs_to_TD(char c) {  //проверка, является ли
 
 int main() {
     try {
-        //Parser P1;
-        //P1.Analyse();
+        Parser P1("Test1.txt");
+        P1.Analyse();
     }
     catch (Error E1) {
-        if (E1.Type == Error::WRONG_CHARACTER) cout << "Error: Wrong character: " << E1.c << endl;
-        if (E1.Type == Error::WRONG_IDENTIFIER) cout << "Error: Incorrect type of identifier: " << E1.Wrong_Lex << endl;
-        if (E1.Type == Error::UNCLOSED_COMMENT) cout << "Error: Code contains unclosed comments" << endl;
-        if (E1.Type == Error::UNCLOSED_BRACE) cout << "Error: Code contains unclosed braces" << endl;
-        if (E1.Type == Error::UNCLOSED_BRACKET) cout << "Error: Code contains unopened brackets" << endl;
-        if (E1.Type == Error::UNOPENED_COMMENT) cout << "Error: Code contains unopened comments" << endl;
-        if (E1.Type == Error::UNOPENED_BRACE) cout << "Error: Code contains unopened braces" << endl;
-        if (E1.Type == Error::UNOPENED_BRACKET) cout << "Error: Code contains unopened brackets" << endl;
-        if (E1.Type == Error::UNCLOSED_STRING) cout << "Error: Code contains unclosed strings" << endl;
-        if (E1.Type == Error::UNKNOWN_ERROR) cout << "Unknown error" << endl;
+        if (E1.Type == Error::WRONG_CHARACTER) cout << "Lexical Error: Wrong character: " << E1.c << endl;
+        if (E1.Type == Error::WRONG_IDENTIFIER) cout << "Lexical Error: Incorrect type of identifier: " << E1.Wrong_Lex << endl;
+        if (E1.Type == Error::UNCLOSED_STRING) cout << "Lexical Error: Code contains unclosed strings" << endl;
+        if (E1.Type == Error::UNKNOWN_ERROR) cout << "Unknown lexical error" << endl;
         return 0;
     }
-    catch(Lex L1){
+    catch (Lex L1) {
         cout << L1;
         return 0;
     }
-    cout << "Syntax analyses was completed successfully!\n\n";
-    for (int i = 0; i < TID.size(); i++)
-        cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' ' << TID[i].Get_Declare() << ' ' << TID[i].Get_Type() << endl;
+    catch (const char *str) {
+        cout << str << endl;
+        Output_Error_String();
+        return 0;
+    }
+    cout << "Syntax and lexical analyses were completed successfully!\n\n";
+    //for (int i = 0; i < TID.size(); i++)
+    //    cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' '
+    //         << TID[i].Get_Declare() << ' ' << TID[i].Get_Type() << endl;
     return 0;
 }
