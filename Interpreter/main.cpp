@@ -5,13 +5,12 @@
 #include <string>
 #include <stack>
 
-//Version 1.7
-//поправлена пара багов, в том числе с выводом. Добавлены необходимые по варианту элементы. Запрещено повторное объявление переменной
-//насата работа по переводу в ПОЛИЗ. Пока: неронятно откуда берутся лишние LEX_NULL
-//Неадекватно работает с несколькими выражениями внутри цикла
-//неправильно работает ассоциативность присваивания
-//неплохо бы отделить строчки как-то, при выводе результата
-//абсолютно никак не отработано %
+//Version 1.7.1
+//ПОЛИЗ работает адекватно, проблем не обнаружено. Разбор пока сделан - каждый оператор отдельно.
+//обнаруженные проблемы: никак не отрабатывается % (mod) - просто не написано. Толком не проверены boolean и string
+//скорее всего, на этом этапе уже можно починить скобки. Они, кстати, тоже никак не проверены, надо доделать
+//скорее всего, проверку корректности типов с внедрением ПОЛИЗ-а придется модернизировать
+//LEX_NULL появился из-за того, что в некоторых циклах надо переходить на нулевой адрес, а он там - по умолчанию NULL
 
 using namespace std;
 
@@ -24,7 +23,7 @@ void Output_Error_String() { //вызывается только при обна
             fseek(Text, -2 * sizeof(char), SEEK_CUR); //переходим на начало ошибочной строки
         else
             break; //в таком случае в c уже считан первый символ первой строки
-            c = fgetc(Text);
+        c = fgetc(Text);
     }
     while ((c == '\n') || (c == '\t') || (c == ' '))
         c = fgetc(Text);
@@ -148,6 +147,7 @@ class Parser {
     int Current_Value;
     Scanner Scan;
     bool In_Cycle = false;
+    bool In_If = false;
     stack<Lex_Type> Lex_Stack; //стек с типами выражений. без него не получается
     void Program();
     void B();
@@ -331,6 +331,7 @@ void Parser::B() {
 void Parser::S() {
     int p10, p11, p12, p13;
     if (Current_Type == LEX_IF) {
+        In_If = true;
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
@@ -341,11 +342,11 @@ void Parser::S() {
             while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                 Get_Lexeme();
                 S();
-                p13 = Poliz.size();
-                Poliz.push_back(Lex());
-                Poliz.push_back(Lex(POLIZ_GO));
-                Poliz[p12] = Lex(POLIZ_LABEL, Poliz.size());
             }
+            p13 = Poliz.size();
+            Poliz.push_back(Lex(POLIZ_LABEL, 0));
+            Poliz.push_back(Lex(POLIZ_GO));
+            Poliz[p12] = Lex(POLIZ_LABEL, Poliz.size());
             if (Current_Type != LEX_CLOSE_BRACKET) {
                 Output_Error_String();
                 throw "Error! Unclosed bracket";
@@ -371,7 +372,12 @@ void Parser::S() {
             else
                 S();
         }
-        Poliz.push_back(POLIZ_NEWLINE);
+        In_If = false;
+        for (Lex l: Poliz)
+            cout << l;
+        cout << endl;
+        Poliz.clear();
+        //Poliz.push_back(POLIZ_NEWLINE);
         S(); //переход на следующее действие
     } //end if
     else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
@@ -381,16 +387,16 @@ void Parser::S() {
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
         p11 = Poliz.size();
-        Poliz.push_back(Lex());
+        Poliz.push_back(Lex(POLIZ_LABEL, 0));
         Poliz.push_back(Lex(POLIZ_FGO));
         if (Current_Type == LEX_OPEN_BRACKET) {
             while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                 Get_Lexeme();
                 S();
-                Poliz.push_back(Lex(POLIZ_LABEL, p10));
-                Poliz.push_back(Lex(POLIZ_GO));
-                Poliz[p11] = Lex(POLIZ_LABEL, Poliz.size());
             }
+            Poliz.push_back(Lex(POLIZ_LABEL, p10));
+            Poliz.push_back(Lex(POLIZ_GO));
+            Poliz[p11] = Lex(POLIZ_LABEL, Poliz.size());
             if (Current_Type != LEX_CLOSE_BRACKET) {
                 Output_Error_String();
                 throw "Error! Unclosed bracket";
@@ -400,7 +406,11 @@ void Parser::S() {
         }
         else
             S(); //иначе-одна простая строка
-        Poliz.push_back(POLIZ_NEWLINE);
+        //Poliz.push_back(POLIZ_NEWLINE);
+        for (Lex l: Poliz)
+            cout << l;
+        cout << endl;
+        Poliz.clear();
         S(); //после выполнения while переходим на следующее действие
         In_Cycle = false;
     } // end while
@@ -425,7 +435,12 @@ void Parser::S() {
             Output_Error_String();
             throw "Reading error";
         }
-        Poliz.push_back(POLIZ_NEWLINE);
+        if ( (!In_Cycle) && (!In_If) ) {
+            for (Lex l: Poliz)
+                cout << l;
+            cout << endl;
+            Poliz.clear();//Poliz.push_back(POLIZ_NEWLINE);
+        }
     } //end read
     else if (Current_Type == LEX_WRITE) {
         Get_Lexeme();
@@ -453,7 +468,12 @@ void Parser::S() {
             Output_Error_String();
             throw "Error! Unclosed write";
         }
-        Poliz.push_back(POLIZ_NEWLINE);
+        if ( (!In_Cycle) && (!In_If) ) {
+            for (Lex l: Poliz)
+                cout << l;
+            cout << endl;
+            Poliz.push_back(POLIZ_NEWLINE);
+        }
     } //end write
     else if (Current_Type == LEX_ID) {
         check_id();
@@ -464,11 +484,17 @@ void Parser::S() {
             throw "Error! Wrong action with identifier";
         }
         else
-        while (Current_Type == LEX_ASSIGN) {
-            Get_Lexeme();
-            E();
-            eq_type();
-            Poliz.push_back(Lex(LEX_ASSIGN));
+            while (Current_Type == LEX_ASSIGN) {
+                Get_Lexeme();
+                E();
+                eq_type();
+                Poliz.push_back(Lex(LEX_ASSIGN));
+            }
+        if ( (!In_Cycle) && (!In_If) ) {
+            for (Lex l: Poliz)
+                cout << l;
+            cout << endl;
+            Poliz.clear();//Poliz.push_back(POLIZ_NEWLINE);
         }
     } //assign end
     else if (Current_Type == LEX_BREAK){
@@ -482,13 +508,14 @@ void Parser::S() {
                 Output_Error_String();
                 throw "Error! Semicolon is lost in break";
             }
+            Poliz.push_back(Lex(POLIZ_LABEL, 0));
+            Poliz.push_back(Lex(POLIZ_GO)); //сюда надо вставить адрес. но сперва-просчитать его
             Get_Lexeme();
             S();
         }
     }
     else
         B();
-    Poliz.push_back(POLIZ_NEWLINE);
 }
 
 void Parser::E() {
@@ -701,7 +728,6 @@ ostream &operator<<(ostream &out, const Lex &L) {
     if (L.Type == LEX_CLOSE_BRACE) cout << ") ";
     if (L.Type == LEX_COMMA) cout << ", ";
     if (L.Type == LEX_STRING) cout << "STRING ";
-    if (L.Type == LEX_TEXT) cout << "TEXT ";
     if (L.Type == LEX_MOD) cout << "% ";
     if (L.Type == LEX_BREAK) cout << "BREAK ";
     if (L.Type == LEX_DO) cout << "DO ";
@@ -933,10 +959,9 @@ int main() {
     }
     catch (const char *str) {
         cout << str << endl;
-        //Output_Error_String();
         return 0;
     }
-    cout << "Syntax and lexical analyses were completed successfully!\n";
+    cout << "\nSyntax and lexical analyses were completed successfully!\n";
     //for (int i = 0; i < TID.size(); i++)
     //    cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' '
     //         << TID[i].Get_Declare() << ' ' << TID[i].Get_Type() << endl;
