@@ -4,27 +4,19 @@
 #include <algorithm>
 #include <string>
 #include <stack>
-#include <ctype.h>
 
-//Beta-1.6
-//выражение вида if ( a >= b or x == y ) просто не обработать рекурсивным спуском. Никак. После or надо заглядывать
-//дальше, чем на x, так как иначе тип будет как у x, а не логический. Так что тут даже править пока нечего, это только ПОЛИЗ-ом
-//а если добавить скобки-уже другое дело, скобка подразумевает переход к выражению
-
-//Первая рабочая версия лексического анализатора. Есть пара багов с выводом ошибки, но вроде работает
-//баги-в основном при незакрытии скобок. вопрос-считать ли их вообще багами? Как понять, это отсутствие скобки или кривое продолжение строки?
 using namespace std;
 
 FILE *Text;
 
 void Output_Error_String() { //вызывается только при обнаружении ошибки, так что все равно, куда в файле мы перейдем
-    char c = fgetc(Text);
+    char c = '1';
     while ((c != '\n') && (ftell(Text) != 0)) {
-        c = fgetc(Text);
         if ((ftell(Text) > 1) && (c != '\n') && (c != EOF))
             fseek(Text, -2 * sizeof(char), SEEK_CUR); //переходим на начало ошибочной строки
         else
             break; //в таком случае в c уже считан первый символ первой строки
+            c = fgetc(Text);
     }
     while ((c == '\n') || (c == '\t') || (c == ' '))
         c = fgetc(Text);
@@ -146,6 +138,7 @@ class Parser {
     Lex_Type Current_Type;
     int Current_Value;
     Scanner Scan;
+    bool In_Cycle = false;
     stack<Lex_Type> Lex_Stack; //стек с типами выражений. без него не получается
     void Program();
     void B();
@@ -175,6 +168,7 @@ void Parser::Analyse() {
     Get_Lexeme();
     Program();
     if (Current_Type != LEX_FIN) {
+        Output_Error_String();
         throw "Error! Not finished";
     }
 }
@@ -201,10 +195,12 @@ void Parser::Initialisation() {
                             }
                         }
                         else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                            Output_Error_String();
                             throw "Wrong int initialisation";
                         } //в случае, если  при отсутствии значения идет что-то лишнее
                     }
                     else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                        Output_Error_String();
                         throw "Wrong int initialisation";
                     } //для случая int a, ...
                 }
@@ -225,14 +221,17 @@ void Parser::Initialisation() {
                             else if (Current_Type == LEX_FALSE)
                                 TID[Number].Set_Value(0);
                             else {
+                                Output_Error_String();
                                 throw "Wrong boolean initialisation";
                             }
                         }
                         else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                            Output_Error_String();
                             throw "Wrong boolean initialisation";
                         } //в случае, если  при отсутствии значения идет что-то лишнее
                     }
                     else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                        Output_Error_String();
                         throw "Wrong boolean initialisation";
                     }
                 }
@@ -251,12 +250,15 @@ void Parser::Initialisation() {
                             if (Current_Type == LEX_TEXT)
                                 TID[Number].Set_Value(Current_Lex.Get_Lex_Value()); //у строковой лексемы номер отвечает за позицию в другой табблице. И обработка такая же, как и у int
                             else {
+                                Output_Error_String();
                                 throw "Wrong string initialisation";
                             }
                         } else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                            Output_Error_String();
                             throw "Wrong string initialisation";
                         } //в случае, если  при отсутствии значения идет что-то лишнее
                     } else if ((Current_Type != LEX_COMMA) && (Current_Type != LEX_SEMICOLON)) {
+                        Output_Error_String();
                         throw "Wrong string initialisation";
                     };
                 }
@@ -272,11 +274,13 @@ void Parser::Program() {
     if (Current_Type == LEX_BEGIN)
         Get_Lexeme();
     else {
+        Output_Error_String();
         throw "Error! Program begins with something wrong";
     }
     if (Current_Type == LEX_OPEN_BRACKET)
         Get_Lexeme();
     else {
+        Output_Error_String();
         throw "Opening bracket is lost";
     }
     Initialisation(); //инициализировали все нужные переменные
@@ -284,7 +288,10 @@ void Parser::Program() {
     B();
     if (Current_Type == LEX_CLOSE_BRACKET)
         Get_Lexeme();
-    else throw "Error! Final bracket is lost";
+    else {
+        Output_Error_String();
+        throw "Error! Final bracket is lost";
+    }
 }
 
 void Parser::B() {
@@ -304,24 +311,26 @@ void Parser::S() { //недописана, недоразобрана
                 Get_Lexeme();
                 S();
             }
-            if (Current_Type != LEX_CLOSE_BRACKET)
+            if (Current_Type != LEX_CLOSE_BRACKET) {
+                Output_Error_String();
                 throw "Error! Unclosed bracket";
+            }
             else
                 Get_Lexeme(); //переход на else
         }
         else
             S(); //иначе-одна простая строка
-        if (Current_Type != LEX_ELSE)
-            throw "Error! Else is lost";
-        else{
+        if (Current_Type == LEX_ELSE){
             Get_Lexeme(); //переходим на то, что после else
             if (Current_Type == LEX_OPEN_BRACKET) {
                 while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                     Get_Lexeme();
                     S();
                 }
-                if (Current_Type != LEX_CLOSE_BRACKET)
+                if (Current_Type != LEX_CLOSE_BRACKET) {
+                    Output_Error_String();
                     throw "Error! Unclosed bracket";
+                }
             }
             else
                 S();
@@ -329,6 +338,7 @@ void Parser::S() { //недописана, недоразобрана
         S(); //переход на следующее действие
     } //end if
     else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
+        In_Cycle = true;
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
@@ -337,14 +347,17 @@ void Parser::S() { //недописана, недоразобрана
                 Get_Lexeme();
                 S();
             }
-            if (Current_Type != LEX_CLOSE_BRACKET)
+            if (Current_Type != LEX_CLOSE_BRACKET) {
+                Output_Error_String();
                 throw "Error! Unclosed bracket";
+            }
             else
                 Get_Lexeme(); //переход на else
         }
         else
             S(); //иначе-одна простая строка
         S(); //после выполнения while переходим на следующее действие
+        In_Cycle = false;
     } // end while
     else if (Current_Type == LEX_READ) {
         Get_Lexeme();
@@ -356,8 +369,14 @@ void Parser::S() { //недописана, недоразобрана
             } else throw "Error! Reading not an identifier";
             if (Current_Type == LEX_CLOSE_BRACE)
                 Get_Lexeme();
-            else throw "Error! No close brace while reading";
-        } else throw "Reading error";
+            else {
+                Output_Error_String();
+                throw "Error! No close brace while reading";
+            }
+        } else {
+            Output_Error_String();
+            throw "Reading error";
+        }
     } //end read
     else if (Current_Type == LEX_WRITE) {
         Get_Lexeme();
@@ -367,24 +386,30 @@ void Parser::S() { //недописана, недоразобрана
             while  (Current_Type == LEX_COMMA){ //так как переменных может быть несколько, через запятую
                 Get_Lexeme();
                 E();
-                if (Current_Type == LEX_FIN)
+                if (Current_Type == LEX_FIN) {
+                    Output_Error_String();
                     throw "Error! Unclosed write";
+                }
             }
             if (Current_Type == LEX_CLOSE_BRACE)
                 Get_Lexeme();
             else {
+                Output_Error_String();
                 throw "Error! Unclosed write";
             }
         }
         else {
+            Output_Error_String();
             throw "Error! Unclosed write";
         }
     } //end write
     else if (Current_Type == LEX_ID) {
         check_id();
         Get_Lexeme();
-        if (Current_Type != LEX_ASSIGN)
+        if (Current_Type != LEX_ASSIGN) {
+            Output_Error_String();
             throw "Error! Wrong action with identifier";
+        }
         else
         while (Current_Type == LEX_ASSIGN) {
             Get_Lexeme();
@@ -392,6 +417,21 @@ void Parser::S() { //недописана, недоразобрана
             eq_type();
         }
     } //assign end
+    else if (Current_Type == LEX_BREAK){
+        if (!In_Cycle){
+            Output_Error_String();
+            throw "Error! break is not allowed here";
+        }
+        else{
+            Get_Lexeme();
+            if (Current_Type != LEX_SEMICOLON){
+                Output_Error_String();
+                throw "Error! Semicolon is lost in break";
+            }
+            Get_Lexeme();
+            S();
+        }
+    }
     else
         B();
 }
@@ -463,10 +503,12 @@ void Parser::F() {
         if (Current_Type == LEX_CLOSE_BRACE)
             Get_Lexeme();
         else {
+            Output_Error_String();
             throw "Error! Unclosed brace";
         }
     }
     else {
+        Output_Error_String();
         throw "Error!";
     }
 }
@@ -475,6 +517,7 @@ void Parser::check_id() {
     if (TID[Current_Value].Get_Declare()) //уже объявлено
         Lex_Stack.push(TID[Current_Value].Get_Type());
     else {
+        Output_Error_String();
         throw "Error! Not declared";
     }
 }
@@ -506,12 +549,14 @@ void Parser::check_op() {
     if ((T1 == T2) && (T1 == T))
         Lex_Stack.push(Res_Type);
     else {
+        Output_Error_String();
         throw "Error! Wrong types of parameters";
     }
 }
 
 void Parser::check_not() {
     if (Lex_Stack.top() != LEX_LOGIC) {
+        Output_Error_String();
         throw "Error! Not a logical expression in \"not\"";
     }
 }
@@ -626,6 +671,7 @@ Lex Lex::Lex_TW(string N) {
     if (N == "write") return LEX_WRITE;
     if (N == "while") return LEX_WHILE;
     if (N == "string") return LEX_STRING;
+    if (N == "break") return LEX_BREAK;
     return LEX_NULL; //если ничего не нашли. чтобы не получать ошибку непонятно на чем
 }
 
@@ -827,10 +873,10 @@ int main() {
     }
     catch (const char *str) {
         cout << str << endl;
-        Output_Error_String();
+        //Output_Error_String();
         return 0;
     }
-    cout << "Syntax and lexical analyses were completed successfully!\n\n";
+    cout << "Syntax and lexical analyses were completed successfully!\n";
     //for (int i = 0; i < TID.size(); i++)
     //    cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' '
     //         << TID[i].Get_Declare() << ' ' << TID[i].Get_Type() << endl;
