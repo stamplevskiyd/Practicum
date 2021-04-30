@@ -5,6 +5,14 @@
 #include <string>
 #include <stack>
 
+//Version 1.7
+//поправлена пара багов, в том числе с выводом. Добавлены необходимые по варианту элементы. Запрещено повторное объявление переменной
+//насата работа по переводу в ПОЛИЗ. Пока: неронятно откуда берутся лишние LEX_NULL
+//Неадекватно работает с несколькими выражениями внутри цикла
+//неправильно работает ассоциативность присваивания
+//неплохо бы отделить строчки как-то, при выводе результата
+//абсолютно никак не отработано %
+
 using namespace std;
 
 FILE *Text;
@@ -36,7 +44,8 @@ enum Lex_Type {
     LEX_ASSIGN, LEX_END, LEX_IF, LEX_INT, LEX_NOT, LEX_WHILE,
     LEX_SEMICOLON, LEX_OPEN_BRACKET, LEX_CLOSE_BRACKET,
     LEX_OPEN_BRACE, LEX_CLOSE_BRACE, LEX_COMMA, LEX_TEXT, LEX_MOD,
-    LEX_BREAK, LEX_DO, LEX_LOGIC
+    LEX_BREAK, LEX_DO, LEX_LOGIC, POLIZ_LABEL, POLIZ_ADDRESS, POLIZ_GO,
+    POLIZ_FGO, POLIZ_NEWLINE //POLIZ_NEWLINE - служебная и нужна только для красивого вывода. Потом просто будем игнорировать или уберем
 };
 
 struct Error {
@@ -162,6 +171,7 @@ class Parser {
 public:
     Parser(const char *Name) : Scan(Name) {} //конструктор по умолчанию
     void Analyse();
+    vector <Lex> Poliz;
 };
 
 void Parser::Analyse() {
@@ -171,6 +181,8 @@ void Parser::Analyse() {
         Output_Error_String();
         throw "Error! Not finished";
     }
+    for (Lex l: Poliz)
+        cout << l;
 }
 
 void Parser::Initialisation() {
@@ -184,6 +196,11 @@ void Parser::Initialisation() {
                     if (Current_Type == LEX_ID) //получили лексему int, затем-лексему-идентификатор
                     {
                         Number = Current_Lex.Get_Lex_Value(); //получаем номер соответствующего ИДЕНТИФИКАТОРА в таблице TID
+                        if (TID[Number].Get_Declare()){
+                            cout << "Error! Second declaration is forbidden\n";
+                            Output_Error_String();
+                            throw Current_Lex;
+                        }
                         TID[Number].Make_Declared(); //переменная уже объявлена
                         TID[Number].Set_Type(LEX_NUM); //указываем, что это-целое число
                         Get_Lexeme(); //лексема-идентификатор
@@ -210,6 +227,11 @@ void Parser::Initialisation() {
                     Get_Lexeme();
                     if (Current_Type == LEX_ID) {
                         Number = Current_Lex.Get_Lex_Value();
+                        if (TID[Number].Get_Declare()){
+                            cout << "Error! Second declaration is forbidden\n";
+                            Output_Error_String();
+                            throw Current_Lex;
+                        }
                         TID[Number].Make_Declared();
                         TID[Number].Set_Type(LEX_LOGIC);
                         Get_Lexeme();
@@ -241,6 +263,11 @@ void Parser::Initialisation() {
                     Get_Lexeme();
                     if (Current_Type == LEX_ID) {
                         Number = Current_Lex.Get_Lex_Value(); //пока получаем просто номер идентификатора, а не строки
+                        if (TID[Number].Get_Declare()){
+                            cout << "Error! Second declaration is forbidden\n";
+                            Output_Error_String();
+                            throw Current_Lex;
+                        }
                         TID[Number].Make_Declared();
                         TID[Number].Set_Type(LEX_TEXT);
                         Get_Lexeme();
@@ -301,15 +328,23 @@ void Parser::B() {
     }
 }
 
-void Parser::S() { //недописана, недоразобрана
+void Parser::S() {
+    int p10, p11, p12, p13;
     if (Current_Type == LEX_IF) {
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
+        p12 = Poliz.size();
+        Poliz.push_back(Lex());
+        Poliz.push_back(Lex(POLIZ_FGO));
         if (Current_Type == LEX_OPEN_BRACKET) {
             while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                 Get_Lexeme();
                 S();
+                p13 = Poliz.size();
+                Poliz.push_back(Lex());
+                Poliz.push_back(Lex(POLIZ_GO));
+                Poliz[p12] = Lex(POLIZ_LABEL, Poliz.size());
             }
             if (Current_Type != LEX_CLOSE_BRACKET) {
                 Output_Error_String();
@@ -326,6 +361,7 @@ void Parser::S() { //недописана, недоразобрана
                 while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                     Get_Lexeme();
                     S();
+                    Poliz[p13] = Lex(POLIZ_LABEL, Poliz.size());
                 }
                 if (Current_Type != LEX_CLOSE_BRACKET) {
                     Output_Error_String();
@@ -335,17 +371,25 @@ void Parser::S() { //недописана, недоразобрана
             else
                 S();
         }
+        Poliz.push_back(POLIZ_NEWLINE);
         S(); //переход на следующее действие
     } //end if
     else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
         In_Cycle = true;
+        p10 = Poliz.size();
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
+        p11 = Poliz.size();
+        Poliz.push_back(Lex());
+        Poliz.push_back(Lex(POLIZ_FGO));
         if (Current_Type == LEX_OPEN_BRACKET) {
             while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                 Get_Lexeme();
                 S();
+                Poliz.push_back(Lex(POLIZ_LABEL, p10));
+                Poliz.push_back(Lex(POLIZ_GO));
+                Poliz[p11] = Lex(POLIZ_LABEL, Poliz.size());
             }
             if (Current_Type != LEX_CLOSE_BRACKET) {
                 Output_Error_String();
@@ -356,6 +400,7 @@ void Parser::S() { //недописана, недоразобрана
         }
         else
             S(); //иначе-одна простая строка
+        Poliz.push_back(POLIZ_NEWLINE);
         S(); //после выполнения while переходим на следующее действие
         In_Cycle = false;
     } // end while
@@ -365,10 +410,13 @@ void Parser::S() { //недописана, недоразобрана
             Get_Lexeme();
             if (Current_Type == LEX_ID) {
                 check_id_in_read();
+                Poliz.push_back(Lex(POLIZ_ADDRESS, Current_Value));
                 Get_Lexeme();
             } else throw "Error! Reading not an identifier";
-            if (Current_Type == LEX_CLOSE_BRACE)
+            if (Current_Type == LEX_CLOSE_BRACE){
                 Get_Lexeme();
+                Poliz.push_back(Lex(LEX_READ));
+            }
             else {
                 Output_Error_String();
                 throw "Error! No close brace while reading";
@@ -377,6 +425,7 @@ void Parser::S() { //недописана, недоразобрана
             Output_Error_String();
             throw "Reading error";
         }
+        Poliz.push_back(POLIZ_NEWLINE);
     } //end read
     else if (Current_Type == LEX_WRITE) {
         Get_Lexeme();
@@ -391,8 +440,10 @@ void Parser::S() { //недописана, недоразобрана
                     throw "Error! Unclosed write";
                 }
             }
-            if (Current_Type == LEX_CLOSE_BRACE)
+            if (Current_Type == LEX_CLOSE_BRACE) {
+                Poliz.push_back(Lex(LEX_WRITE));
                 Get_Lexeme();
+            }
             else {
                 Output_Error_String();
                 throw "Error! Unclosed write";
@@ -402,9 +453,11 @@ void Parser::S() { //недописана, недоразобрана
             Output_Error_String();
             throw "Error! Unclosed write";
         }
+        Poliz.push_back(POLIZ_NEWLINE);
     } //end write
     else if (Current_Type == LEX_ID) {
         check_id();
+        Poliz.push_back(Lex(POLIZ_ADDRESS, Current_Value));
         Get_Lexeme();
         if (Current_Type != LEX_ASSIGN) {
             Output_Error_String();
@@ -415,6 +468,7 @@ void Parser::S() { //недописана, недоразобрана
             Get_Lexeme();
             E();
             eq_type();
+            Poliz.push_back(Lex(LEX_ASSIGN));
         }
     } //assign end
     else if (Current_Type == LEX_BREAK){
@@ -434,6 +488,7 @@ void Parser::S() { //недописана, недоразобрана
     }
     else
         B();
+    Poliz.push_back(POLIZ_NEWLINE);
 }
 
 void Parser::E() {
@@ -470,26 +525,32 @@ void Parser::T() {
 void Parser::F() {
     if (Current_Type == LEX_ID) {
         check_id();
+        Poliz.push_back(Lex(LEX_ID, Current_Value));
         Get_Lexeme();
     }
     else if (Current_Type == LEX_NUM) {
         Lex_Stack.push(LEX_NUM);
+        Poliz.push_back(Current_Lex);
         Get_Lexeme();
     }
     else if (Current_Type == LEX_TEXT) {
         Lex_Stack.push(LEX_TEXT);
+        Poliz.push_back(Current_Lex);
         Get_Lexeme();
     }
     else if (Current_Type == LEX_TRUE) {
         Lex_Stack.push(LEX_LOGIC);
+        Poliz.push_back(Lex(LEX_TRUE ,1));
         Get_Lexeme();
     }
     else if (Current_Type == LEX_FALSE) {
         Lex_Stack.push(LEX_LOGIC);
+        Poliz.push_back(Lex(LEX_FALSE, 0));
         Get_Lexeme();
     }
     else if (Current_Type == LEX_LOGIC) {
         Lex_Stack.push(LEX_LOGIC);
+        Poliz.push_back(Current_Lex);
         Get_Lexeme();
     }
     else if (Current_Type == LEX_NOT) {
@@ -524,13 +585,10 @@ void Parser::check_id() {
 
 void Parser::check_op() {
     Lex_Type T1, T2, Operation, T, Res_Type;
-
     T2 = Lex_Stack.top(); //извлечение верхнего элемента стека в переменную T2
     Lex_Stack.pop();
-
     Operation = Lex_Stack.top();
     Lex_Stack.pop();
-
     T1 = Lex_Stack.top();
     Lex_Stack.pop();
 
@@ -552,6 +610,7 @@ void Parser::check_op() {
         Output_Error_String();
         throw "Error! Wrong types of parameters";
     }
+    Poliz.push_back(Lex(Operation));
 }
 
 void Parser::check_not() {
@@ -559,6 +618,7 @@ void Parser::check_not() {
         Output_Error_String();
         throw "Error! Not a logical expression in \"not\"";
     }
+    Poliz.push_back(Lex(LEX_NOT));
 }
 
 void Parser::eq_type() {
@@ -606,53 +666,53 @@ bool IsDigit(char c) {
 }
 
 ostream &operator<<(ostream &out, const Lex &L) {
-    if (L.Type == LEX_NULL) cout << "LEX_NULL";
-    if (L.Type == LEX_AND) cout << "LEX_AND";
-    if (L.Type == LEX_END) cout << "LEX_END";
-    if (L.Type == LEX_BEGIN) cout << "LEX_BEGIN";
-    if (L.Type == LEX_BOOL) cout << "LEX_BOOL";
-    if (L.Type == LEX_ID) cout << "LEX_ID";
-    if (L.Type == LEX_READ) cout << "LEX_READ";
-    if (L.Type == LEX_WRITE) cout << "LEX_WRITE";
-    if (L.Type == LEX_TRUE) cout << "LEX_TRUE";
-    if (L.Type == LEX_FALSE) cout << "LEX_FALSE";
-    if (L.Type == LEX_FIN) cout << "LEX_FIN";
-    if (L.Type == LEX_NUM) cout << "LEX_NUM";
-    if (L.Type == LEX_DIVIDE) cout << "LEX_DIVIDE";
-    if (L.Type == LEX_MULTIPLY) cout << "LEX_MULTIPLY";
-    if (L.Type == LEX_ADD) cout << "LEX_ADD";
-    if (L.Type == LEX_SUBTRACT) cout << "LEX_SUBTRACT";
-    if (L.Type == LEX_THEN) cout << "LEX_THEN";
-    if (L.Type == LEX_OR) cout << "LEX_OR";
-    if (L.Type == LEX_ELSE) cout << "LEX_ELSE";
-    if (L.Type == LEX_EQ) cout << "LEX_EQ";
-    if (L.Type == LEX_NEQ) cout << "LEX_NEQ";
-    if (L.Type == LEX_GEQ) cout << "LEX_GEQ";
-    if (L.Type == LEX_LEQ) cout << "LEX_LEQ";
-    if (L.Type == LEX_G) cout << "LEX_G";
-    if (L.Type == LEX_L) cout << "LEX_L";
-    if (L.Type == LEX_IF) cout << "LEX_IF";
-    if (L.Type == LEX_INT) cout << "LEX_INT";
-    if (L.Type == LEX_NOT) cout << "LEX_NOT";
-    if (L.Type == LEX_WHILE) cout << "LEX_WHILE";
-    if (L.Type == LEX_ASSIGN) cout << "LEX_ASSIGN";
-    if (L.Type == LEX_SEMICOLON) cout << "LEX_SEMICOLON";
-    if (L.Type == LEX_OPEN_BRACKET) cout << "LEX_OPEN_BRACKET";
-    if (L.Type == LEX_CLOSE_BRACKET) cout << "LEX_CLOSE_BRACKET";
-    if (L.Type == LEX_OPEN_BRACE) cout << "LEX_OPEN_BRACE";
-    if (L.Type == LEX_CLOSE_BRACE) cout << "LEX_CLOSE_BRACE";
-    if (L.Type == LEX_COMMA) cout << "LEX_COMMA";
-    if (L.Type == LEX_STRING) cout << "LEX_STRING";
-    if (L.Type == LEX_TEXT) cout << "LEX_TEXT";
-    if (L.Type == LEX_MOD) cout << "LEX_MOD";
-    if (L.Type == LEX_BREAK) cout << "LEX_BREAK";
-    if (L.Type == LEX_DO) cout << "LEX_DO";
-    if ((L.Type == LEX_ID) || (L.Type == LEX_NUM)) //чтобы вывод не замусоривать
-        cout << ' ' << L.Lex_Value;
-    if (L.Type == LEX_TEXT)
-        cout << ' ' << TS[L.Lex_Value];
-    cout << ' ' << L.Get_Lex_Type();
-    cout << endl;
+    if (L.Type == LEX_NULL) cout << "NULL ";
+    if (L.Type == LEX_AND) cout << "AND ";
+    if (L.Type == LEX_END) cout << "END ";
+    if (L.Type == LEX_BEGIN) cout << "BEGIN ";
+    if (L.Type == LEX_BOOL) cout << "BOOL" << L.Get_Lex_Value() << ' ';
+    if (L.Type == LEX_READ) cout << "READ ";
+    if (L.Type == LEX_WRITE) cout << "WRITE ";
+    if (L.Type == LEX_TRUE) cout << "TRUE ";
+    if (L.Type == LEX_FALSE) cout << "FALSE ";
+    if (L.Type == LEX_FIN) cout << "FIN ";
+    if (L.Type == LEX_DIVIDE) cout << "/ ";
+    if (L.Type == LEX_MULTIPLY) cout << "* ";
+    if (L.Type == LEX_ADD) cout << "+ ";
+    if (L.Type == LEX_SUBTRACT) cout << "- ";
+    if (L.Type == LEX_THEN) cout << "THEN ";
+    if (L.Type == LEX_OR) cout << "OR ";
+    if (L.Type == LEX_ELSE) cout << "ELSE ";
+    if (L.Type == LEX_EQ) cout << "== ";
+    if (L.Type == LEX_NEQ) cout << "!= ";
+    if (L.Type == LEX_GEQ) cout << ">= ";
+    if (L.Type == LEX_LEQ) cout << "<= ";
+    if (L.Type == LEX_G) cout << "> ";
+    if (L.Type == LEX_L) cout << "< ";
+    if (L.Type == LEX_IF) cout << "IF ";
+    if (L.Type == LEX_INT) cout << "INT ";
+    if (L.Type == LEX_NOT) cout << "NOT ";
+    if (L.Type == LEX_WHILE) cout << "WHILE ";
+    if (L.Type == LEX_ASSIGN) cout << "= ";
+    if (L.Type == LEX_SEMICOLON) cout << "; ";
+    if (L.Type == LEX_OPEN_BRACKET) cout << "{ ";
+    if (L.Type == LEX_CLOSE_BRACKET) cout << "} ";
+    if (L.Type == LEX_OPEN_BRACE) cout << "( ";
+    if (L.Type == LEX_CLOSE_BRACE) cout << ") ";
+    if (L.Type == LEX_COMMA) cout << ", ";
+    if (L.Type == LEX_STRING) cout << "STRING ";
+    if (L.Type == LEX_TEXT) cout << "TEXT ";
+    if (L.Type == LEX_MOD) cout << "% ";
+    if (L.Type == LEX_BREAK) cout << "BREAK ";
+    if (L.Type == LEX_DO) cout << "DO ";
+    if (L.Type == LEX_ID) cout << TID[L.Get_Lex_Value()].Get_Name() << ' ';
+    if (L.Type == LEX_TEXT) cout << '\"' << TS[L.Lex_Value] << "\" ";
+    if (L.Type == LEX_NUM) cout << L.Get_Lex_Value() << ' ';
+    if (L.Type == POLIZ_GO) cout << "! ";
+    if (L.Type == POLIZ_FGO) cout << "!F ";
+    if (L.Type == POLIZ_LABEL) cout << "PL" << L.Get_Lex_Value() << ' ';
+    if (L.Type == POLIZ_ADDRESS) cout << "&" << TID[L.Get_Lex_Value()].Get_Name() << ' '; // POLIZ_ADDRESS - это как раз адрес переменной
+    if (L.Type == POLIZ_NEWLINE) cout << endl;
     return out;
 }
 
