@@ -5,12 +5,11 @@
 #include <string>
 #include <stack>
 
-//Version 1.7.1
-//ПОЛИЗ работает адекватно, проблем не обнаружено. Разбор пока сделан - каждый оператор отдельно.
-//обнаруженные проблемы: никак не отрабатывается % (mod) - просто не написано. Толком не проверены boolean и string
-//скорее всего, на этом этапе уже можно починить скобки. Они, кстати, тоже никак не проверены, надо доделать
-//скорее всего, проверку корректности типов с внедрением ПОЛИЗ-а придется модернизировать
-//LEX_NULL появился из-за того, что в некоторых циклах надо переходить на нулевой адрес, а он там - по умолчанию NULL
+//Version 1.7.2
+//Поправлены комментарии
+//добавлено ограничение по типам для умножения и деления
+//Поправлена работа с if при отсутствии else-части
+//заработала ассоциативность присваивания. но не совсем понятно, почему.
 
 using namespace std;
 
@@ -336,7 +335,7 @@ void Parser::S() {
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
         p12 = Poliz.size();
-        Poliz.push_back(Lex());
+        Poliz.push_back(Lex()); //этот переход все равно изменим далее. пусть пока будет LEX_NULL
         Poliz.push_back(Lex(POLIZ_FGO));
         if (Current_Type == LEX_OPEN_BRACKET) {
             while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
@@ -344,7 +343,7 @@ void Parser::S() {
                 S();
             }
             p13 = Poliz.size();
-            Poliz.push_back(Lex(POLIZ_LABEL, 0));
+            Poliz.push_back(Lex()); //тоже изментися
             Poliz.push_back(Lex(POLIZ_GO));
             Poliz[p12] = Lex(POLIZ_LABEL, Poliz.size());
             if (Current_Type != LEX_CLOSE_BRACKET) {
@@ -371,6 +370,10 @@ void Parser::S() {
             }
             else
                 S();
+        }
+        else{
+            Poliz.pop_back(); //если переходя по else нет, значит, надо убрать лишние элементы: адрес и символ перехода из полиза
+            Poliz.pop_back();
         }
         In_If = false;
         for (Lex l: Poliz)
@@ -521,7 +524,7 @@ void Parser::S() {
 void Parser::E() {
     E1();
     if ((Current_Type == LEX_EQ) || (Current_Type == LEX_NEQ) || (Current_Type == LEX_G) || (Current_Type == LEX_L) ||
-        (Current_Type == LEX_LEQ) || (Current_Type == LEX_GEQ)) {
+        (Current_Type == LEX_LEQ) || (Current_Type == LEX_GEQ) || (Current_Type == LEX_ASSIGN)) {
         Lex_Stack.push(Current_Type); //запоминаем текцщий тип в стеке. Для адекватной проверки на сравнимость типов
         Get_Lexeme();
         E1();
@@ -531,7 +534,8 @@ void Parser::E() {
 
 void Parser::E1() {
     T();
-    while ((Current_Type == LEX_ADD) || (Current_Type == LEX_SUBTRACT) || (Current_Type == LEX_OR)) {
+    while ((Current_Type == LEX_ADD) || (Current_Type == LEX_SUBTRACT) ||
+    (Current_Type == LEX_OR)) {
         Lex_Stack.push(Current_Type);
         Get_Lexeme();
         T();
@@ -541,7 +545,8 @@ void Parser::E1() {
 
 void Parser::T() {
     F();
-    while ((Current_Type == LEX_DIVIDE) || (Current_Type == LEX_MULTIPLY) || (Current_Type == LEX_AND)) {
+    while ((Current_Type == LEX_DIVIDE) || (Current_Type == LEX_MULTIPLY) ||
+    (Current_Type == LEX_AND) || (Current_Type == LEX_MOD)) {
         Lex_Stack.push(Current_Type);
         Get_Lexeme();
         F();
@@ -591,6 +596,7 @@ void Parser::F() {
         if (Current_Type == LEX_CLOSE_BRACE)
             Get_Lexeme();
         else {
+            cout << " L: " << Current_Lex << endl;
             Output_Error_String();
             throw "Error! Unclosed brace";
         }
@@ -619,9 +625,11 @@ void Parser::check_op() {
     T1 = Lex_Stack.top();
     Lex_Stack.pop();
 
-    if ((Operation == LEX_ADD) || (Operation == LEX_SUBTRACT) || (Operation == LEX_MULTIPLY) ||
-        (Operation == LEX_DIVIDE)) {
+    if ((Operation == LEX_ADD) || (Operation == LEX_SUBTRACT) || (Operation == LEX_ASSIGN)) {
         Res_Type = T = T1;
+    }
+    if ( (Operation == LEX_MULTIPLY) || (Operation == LEX_DIVIDE) || (Operation == LEX_MOD)){
+        Res_Type = T = LEX_NUM;
     }
     if ((Operation == LEX_OR) || (Operation == LEX_AND)) {
         T = Res_Type = LEX_LOGIC;
@@ -906,7 +914,11 @@ Lex Scanner::Get_Lex() {
             case Comment: //в комментарии не надо заморачиваться с \", а вот в строках надо
                 if (c == EOF)
                     throw Error(Error::UNCLOSED_COMMENT); //значит, дошли до конца текста в комментарии
-                if (c == '/')
+                if (c == '*'){
+                    gc();
+                    if (c == '/')
+                        Get_Lex();
+                }
                     break;
                 break;
             case Division:
