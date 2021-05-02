@@ -5,11 +5,12 @@
 #include <string>
 #include <stack>
 
-//Version 1.7.2
+//Version 1.7.3
 //Поправлены комментарии
 //добавлено ограничение по типам для умножения и деления
 //Поправлена работа с if при отсутствии else-части
-//заработала ассоциативность присваивания. но не совсем понятно, почему.
+//ассоциативность присваивания все еще не работает
+//где-то есть баги с очисткой Lex_Stack
 
 using namespace std;
 
@@ -361,15 +362,16 @@ void Parser::S() {
                 while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
                     Get_Lexeme();
                     S();
-                    Poliz[p13] = Lex(POLIZ_LABEL, Poliz.size());
                 }
                 if (Current_Type != LEX_CLOSE_BRACKET) {
                     Output_Error_String();
                     throw "Error! Unclosed bracket";
                 }
+                Get_Lexeme();
             }
             else
                 S();
+            Poliz[p13] = Lex(POLIZ_LABEL, Poliz.size());
         }
         else{
             Poliz.pop_back(); //если переходя по else нет, значит, надо убрать лишние элементы: адрес и символ перехода из полиза
@@ -535,7 +537,7 @@ void Parser::E() {
 void Parser::E1() {
     T();
     while ((Current_Type == LEX_ADD) || (Current_Type == LEX_SUBTRACT) ||
-    (Current_Type == LEX_OR)) {
+           (Current_Type == LEX_OR)) {
         Lex_Stack.push(Current_Type);
         Get_Lexeme();
         T();
@@ -546,7 +548,7 @@ void Parser::E1() {
 void Parser::T() {
     F();
     while ((Current_Type == LEX_DIVIDE) || (Current_Type == LEX_MULTIPLY) ||
-    (Current_Type == LEX_AND) || (Current_Type == LEX_MOD)) {
+           (Current_Type == LEX_AND) || (Current_Type == LEX_MOD)) {
         Lex_Stack.push(Current_Type);
         Get_Lexeme();
         F();
@@ -657,10 +659,12 @@ void Parser::check_not() {
 }
 
 void Parser::eq_type() {
-    Lex_Type T;
+    Lex_Type T, T1;
     T = Lex_Stack.top();
     Lex_Stack.pop();
-    if (T != Lex_Stack.top()) { //если типы на вершине стека не совпадают. то есть если в выражении разные типы
+    if (T != (T1 = Lex_Stack.top())) { //если типы на вершине стека не совпадают. то есть если в выражении разные типы
+        Output_Error_String();
+        cout << T << ' ' << T1 << endl;
         throw "Error! Wrong types\n";
     }
     Lex_Stack.pop(); //больше эти типы не нужны
@@ -668,14 +672,17 @@ void Parser::eq_type() {
 
 void Parser::eq_bool() {
     if (Lex_Stack.top() != LEX_LOGIC) {
+        Output_Error_String();
         throw "Error! Not a boolean expression\n";
     }
     Lex_Stack.pop();
 }
 
 void Parser::check_id_in_read() {
-    if (!TID[Current_Value].Get_Declare())
+    if (!TID[Current_Value].Get_Declare()) {
+        Output_Error_String();
         throw "Error! Not declared\n";
+    }
 }
 
 int Put_String(string &Str) {
@@ -919,7 +926,7 @@ Lex Scanner::Get_Lex() {
                     if (c == '/')
                         Get_Lex();
                 }
-                    break;
+                break;
                 break;
             case Division:
                 return LEX_DIVIDE;
