@@ -5,14 +5,7 @@
 #include <string>
 #include <stack>
 
-//Version 1.7.5. Хоть немного рабочее ассоциативное присваивание
-
-//Version 1.7.4
-//Поправлены комментарии
-//Поправлена работа с if при отсутствии else-части
-//Протестированы по отдельности простые операторы, if, while, break, комментарии.
-//в них проблем не обнаружено
-//разве что тможно сделать более красиывй вывод на else не там, где надо
+//Version 1.7.5. Работает ассоциативность присваивания, проблемы с проверкой типов
 
 using namespace std;
 
@@ -316,6 +309,10 @@ void Parser::Program() {
     Initialisation(); //инициализировали все нужные переменные
     S();
     B();
+    for (Lex l: Poliz)
+        cout << l;
+    cout << endl;
+    Poliz.clear();
     if (Current_Type == LEX_CLOSE_BRACKET)
         Get_Lexeme();
     else {
@@ -379,11 +376,7 @@ void Parser::S() {
             Poliz.pop_back();
         }
         In_If = false;
-        for (Lex l: Poliz)
-            cout << l;
         cout << endl;
-        Poliz.clear();
-        //Poliz.push_back(POLIZ_NEWLINE);
         S(); //переход на следующее действие
     } //end if
     else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
@@ -412,11 +405,7 @@ void Parser::S() {
         }
         else
             S(); //иначе-одна простая строка
-        //Poliz.push_back(POLIZ_NEWLINE);
-        for (Lex l: Poliz)
-            cout << l;
         cout << endl;
-        Poliz.clear();
         S(); //после выполнения while переходим на следующее действие
         In_Cycle = false;
     } // end while
@@ -441,13 +430,7 @@ void Parser::S() {
             Output_Error_String();
             throw "Reading error";
         }
-        Poliz.push_back(Lex(LEX_SEMICOLON));
-        if ( (!In_Cycle) && (!In_If) ) {
-            for (Lex l: Poliz)
-                cout << l;
-            cout << endl;
-            Poliz.clear();//Poliz.push_back(POLIZ_NEWLINE);
-        }
+        cout << endl;
     } //end read
     else if (Current_Type == LEX_WRITE) {
         Get_Lexeme();
@@ -475,13 +458,7 @@ void Parser::S() {
             Output_Error_String();
             throw "Error! Unclosed write";
         }
-        Poliz.push_back(Lex(LEX_SEMICOLON));
-        if ( (!In_Cycle) && (!In_If) ) {
-            for (Lex l: Poliz)
-                cout << l;
-            cout << endl;
-            Poliz.push_back(POLIZ_NEWLINE);
-        }
+        cout << endl;
     } //end write
     else if (Current_Type == LEX_ID) {
         Recursive_Assignment = true;
@@ -492,11 +469,17 @@ void Parser::S() {
         if (Current_Type == LEX_SEMICOLON){
             Poliz.pop_back(); //меняем адрес переменной на значение, если это-конец
             Poliz.push_back(Buffer);
+            cout << endl;
         }
         else{
-        if (Current_Type != LEX_ASSIGN) { //первое присваивание есть обязательно, иначе это-ошибка
-            Output_Error_String();
-            throw "Error! Wrong action with identifier";
+        if (Current_Type != LEX_ASSIGN) { //если это не присваивание, то рассматриваемая лексема-значение, а не величина. a = b + 5, b в таком выражении
+            Poliz.pop_back(); //меняем адрес переменной на значение, если это-конец
+            Poliz.push_back(Buffer);
+            Buffer = Current_Lex;
+            Get_Lexeme();
+            E();
+            eq_type();
+            Poliz.push_back(Buffer.Get_Lex_Type());
         }
         else{
             Get_Lexeme();
@@ -504,6 +487,7 @@ void Parser::S() {
                 E();
                 eq_type();
                 Poliz.push_back(Lex(LEX_ASSIGN));
+                cout << endl; //присваивание выражения-финальное
             }
             else{ //если все-таки идетнификатор
                 if (TID[Buffer.Get_Lex_Value()].Get_Type() != TID[Current_Lex.Get_Lex_Value()].Get_Type()){ //если типы не совпали
@@ -512,18 +496,10 @@ void Parser::S() {
                     throw "Error! wrong types of arguments\n";
                 }
                 S(); //если типы все-таки совпали и это идентификатор. когда-нибудь из этой рекурсии выйдем
+                Poliz.push_back((Lex(LEX_ASSIGN)));
             }
-            Poliz.push_back((Lex(LEX_ASSIGN)));
         }
-
-        Poliz.push_back(Lex(LEX_SEMICOLON));
-        if ( (!In_Cycle) && (!In_If) ) {
-            for (Lex l: Poliz)
-                cout << l;
-            cout << endl;
-            Poliz.clear();//Poliz.push_back(POLIZ_NEWLINE);
-            Recursive_Assignment = false;
-        }}
+        }
     } //assign end
     else if (Current_Type == LEX_BREAK){
         if (!In_Cycle){
