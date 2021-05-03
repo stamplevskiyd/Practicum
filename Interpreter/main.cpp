@@ -5,9 +5,10 @@
 #include <string>
 #include <stack>
 
-//Version 1.7.6.
-//похоже, работает и ассоциативное присваивание и проверка совместимости, но нужны проверки
-//особое внимание - на функцию S и работу с идентификаторами, но без присваивания. там многое закомментировано
+//Version 1.7.7.
+//исправлены точки с запятыми
+//Добавлена проверка присваиваний с логическими выражениями: k = a == b
+//поправлены скобки в выражениях вида k = a == b или k = (a == b)
 
 using namespace std;
 
@@ -146,6 +147,7 @@ class Parser {
     bool In_Cycle = false;
     bool In_If = false;
     bool Recursive_Assignment = false;
+    int Recursion = 0;
     stack<Lex_Type> Lex_Stack; //стек с типами выражений. без него не получается
     void Program();
     void B();
@@ -333,6 +335,7 @@ void Parser::B() {
 void Parser::S() {
     int p10, p11, p12, p13;
     if (Current_Type == LEX_IF) {
+        int Zero_Address = Poliz.size();
         In_If = true;
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
@@ -378,17 +381,17 @@ void Parser::S() {
             Poliz.pop_back();
         }
         In_If = false;
-        cout << endl;
         S(); //переход на следующее действие
     } //end if
     else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
         In_Cycle = true;
+        int Zero_Address = Poliz.size();
         p10 = Poliz.size();
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
         eq_bool();
         p11 = Poliz.size();
-        Poliz.push_back(Lex(POLIZ_LABEL, 0));
+        Poliz.push_back(Lex(POLIZ_LABEL, Zero_Address));
         Poliz.push_back(Lex(POLIZ_FGO));
         if (Current_Type == LEX_OPEN_BRACKET) {
             while ((Current_Type != LEX_CLOSE_BRACKET) && (Current_Type != LEX_FIN)) {
@@ -407,7 +410,6 @@ void Parser::S() {
         }
         else
             S(); //иначе-одна простая строка
-        cout << endl;
         S(); //после выполнения while переходим на следующее действие
         In_Cycle = false;
     } // end while
@@ -432,7 +434,11 @@ void Parser::S() {
             Output_Error_String();
             throw "Reading error";
         }
-        cout << endl;
+        if (Current_Type != LEX_SEMICOLON){
+            Output_Error_String();
+            cout << "Error! Semicolon is lost\n";
+        }
+        Poliz.push_back(Lex(LEX_SEMICOLON));
     } //end read
     else if (Current_Type == LEX_WRITE) {
         Get_Lexeme();
@@ -460,7 +466,11 @@ void Parser::S() {
             Output_Error_String();
             throw "Error! Unclosed write";
         }
-        cout << endl;
+        if (Current_Type != LEX_SEMICOLON){
+            Output_Error_String();
+            cout << "Error! Semicolon is lost\n";
+        }
+        Poliz.push_back(Lex(LEX_SEMICOLON));
     } //end write
     else if (Current_Type == LEX_ID) {
         Recursive_Assignment = true;
@@ -471,48 +481,57 @@ void Parser::S() {
         if (Current_Type == LEX_SEMICOLON){
             Poliz.pop_back(); //меняем адрес переменной на значение, если это-конец
             Poliz.push_back(Buffer);
-            cout << endl;
         }
         else{
-        if (Current_Type != LEX_ASSIGN) { //если это не присваивание, то рассматриваемая лексема-значение, а не величина. a = b + 5, b в таком выражении
-            Poliz.pop_back(); //меняем адрес переменной на значение, если это-конец
-            Poliz.push_back(Buffer);
-            //Get_Lexeme();
-            //Lex_Stack.push(Buffer.Get_Lex_Type()); //пишем саму переменную и операцию для проверки типов
-            while (Current_Type != LEX_SEMICOLON){
-                Lex_Stack.push(Current_Type);
-                //E();
-                //eq_type();
-                Get_Lexeme();
-                F();
-                check_op();
-            }
-            cout << Current_Lex << endl;
-            //Get_Lexeme(); //чтобы перейти на следующее
-            //S();
-            //Poliz.push_back(Buffer.Get_Lex_Type());
-        }
-        else{
-            Get_Lexeme();
-            if (Current_Type != LEX_ID){ //выражение обрабатываем точно так же, как и раньше
-                E();
-                eq_type();
-                Poliz.push_back(Lex(LEX_ASSIGN));
-                cout << endl; //присваивание выражения-финальное
-            }
-            else{ //если все-таки идетнификатор
-                if (TID[Buffer.Get_Lex_Value()].Get_Type() != TID[Current_Lex.Get_Lex_Value()].Get_Type()){ //если типы не совпали
-                    cout << TID[Buffer.Get_Lex_Value()].Get_Type() << ' ' << TID[Current_Lex.Get_Lex_Value()].Get_Type() << endl;
-                    Output_Error_String();
-                    throw "Error! wrong types of arguments\n";
+            if (Current_Type != LEX_ASSIGN) { //если это не присваивание, то рассматриваемая лексема-значение, а не величина. a = b + 5, b в таком выражении
+                Poliz.pop_back(); //меняем адрес переменной на значение, если это-конец
+                Poliz.push_back(Buffer);
+                while ( (Current_Type != LEX_SEMICOLON) && (Current_Type != LEX_FIN) ){
+                    Lex_Stack.push(Current_Type);
+                    Get_Lexeme();
+                    Recursion++;
+                    F();
+                    check_op();
+                    Recursion--;
                 }
-                S(); //если типы все-таки совпали и это идентификатор. когда-нибудь из этой рекурсии выйдем
-                Poliz.push_back((Lex(LEX_ASSIGN)));
+                if (Current_Type == LEX_FIN){
+                    Output_Error_String();
+                    throw "Error! Semicolon is lost\n";
+                }
+            }
+            else{
+                Get_Lexeme();
+                if (Current_Type != LEX_ID){ //выражение обрабатываем точно так же, как и раньше
+                    Recursion++;
+                    E(); //типы проверим самостоятельно, здесь
+                    if (Lex_Stack.top() != TID[Buffer.Get_Lex_Value()].Get_Type()){
+                        Output_Error_String();
+                        cout << Lex_Stack.top() << ' ' <<  TID[Buffer.Get_Lex_Value()].Get_Type() << endl;
+                        throw "Error! Unassignable types\n";
+                    }
+                    Poliz.push_back(Lex(LEX_ASSIGN));
+                    Recursion--;
+                }
+                else{ //если все-таки идетнификатор
+                    //if (TID[Buffer.Get_Lex_Value()].Get_Type() != TID[Current_Lex.Get_Lex_Value()].Get_Type()){ //если типы не совпали
+                    //    Output_Error_String();
+                    //    throw "Error! wrong types of arguments\n";
+                   // }
+                    Recursion++;
+                    S(); //если типы все-таки совпали и это идентификатор. когда-нибудь из этой рекурсии выйдем
+                    if (Lex_Stack.top() != TID[Buffer.Get_Lex_Value()].Get_Type()){
+                        Output_Error_String();
+                        throw "Error! Unassignable types\n";
+                    }
+                    Poliz.push_back((Lex(LEX_ASSIGN)));
+                    Recursion--;
+                }
             }
         }
-        }
+        if (Recursion == 0) Poliz.push_back(Lex(LEX_SEMICOLON));
     } //assign end
     else if (Current_Type == LEX_BREAK){
+        int Zero_Address = Poliz.size();
         if (!In_Cycle){
             Output_Error_String();
             throw "Error! break is not allowed here";
@@ -523,9 +542,10 @@ void Parser::S() {
                 Output_Error_String();
                 throw "Error! Semicolon is lost in break";
             }
-            Poliz.push_back(Lex(LEX_SEMICOLON));
-            Poliz.push_back(Lex(POLIZ_LABEL, 0));
+            //Poliz.push_back(Lex(LEX_SEMICOLON));
+            Poliz.push_back(Lex(POLIZ_LABEL, Zero_Address));
             Poliz.push_back(Lex(POLIZ_GO)); //сюда надо вставить адрес. но сперва-просчитать его
+            cout << endl;
             Get_Lexeme();
             S();
         }
@@ -609,7 +629,6 @@ void Parser::F() {
         if (Current_Type == LEX_CLOSE_BRACE)
             Get_Lexeme();
         else {
-            cout << " L: " << Current_Lex << endl;
             Output_Error_String();
             throw "Error! Unclosed brace";
         }
@@ -630,7 +649,6 @@ void Parser::check_id() {
 }
 
 void Parser::check_op() {
-    cout << "Check_op is working\n";
     Lex_Type T1, T2, Operation, T, Res_Type;
     T2 = Lex_Stack.top(); //извлечение верхнего элемента стека в переменную T2
     Lex_Stack.pop();
@@ -650,7 +668,7 @@ void Parser::check_op() {
             Res_Type = T = T1;
     }
     if ( (Operation == LEX_MULTIPLY) || (Operation == LEX_DIVIDE) || (Operation == LEX_MOD) ||
-            (Operation == LEX_SUBTRACT) ){
+         (Operation == LEX_SUBTRACT) ){
         Res_Type = T = LEX_NUM;
     }
     if ((Operation == LEX_OR) || (Operation == LEX_AND)) {
