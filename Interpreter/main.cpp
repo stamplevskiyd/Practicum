@@ -5,13 +5,8 @@
 #include <string>
 #include <stack>
 
-//Version 1.7.8.
-//исправлены точки с запятыми
-//Добавлена проверка присваиваний с логическими выражениями: k = a == b
-//поправлены скобки в выражениях вида k = a == b или k = (a == b)
-//Поправлена пара багов с while, добавлен пустой оператор (в ПОЛИЗ-е никак не отображается)
-//старый пример со скобками не работает, но непонятно, должен ли
-
+//Version 2.0
+//Поправлены несколько багов, в том числе с присваиванием внутри операций и лишними ;. В таком виде и была сдана
 using namespace std;
 
 FILE *Text;
@@ -440,7 +435,6 @@ void Parser::S() {
             Output_Error_String();
             cout << "Error! Semicolon is lost\n";
         }
-        Poliz.push_back(Lex(LEX_SEMICOLON));
     } //end read
     else if (Current_Type == LEX_WRITE) {
         Get_Lexeme();
@@ -472,7 +466,6 @@ void Parser::S() {
             Output_Error_String();
             cout << "Error! Semicolon is lost\n";
         }
-        Poliz.push_back(Lex(LEX_SEMICOLON));
     } //end write
     else if (Current_Type == LEX_ID) {
         Recursive_Assignment = true;
@@ -508,7 +501,6 @@ void Parser::S() {
                     E(); //типы проверим самостоятельно, здесь
                     if (Lex_Stack.top() != TID[Buffer.Get_Lex_Value()].Get_Type()){
                         Output_Error_String();
-                        cout << Lex_Stack.top() << ' ' <<  TID[Buffer.Get_Lex_Value()].Get_Type() << endl;
                         throw "Error! Unassignable types\n";
                     }
                     Poliz.push_back(Lex(LEX_ASSIGN));
@@ -556,6 +548,11 @@ void Parser::E() {
     E1();
     if ((Current_Type == LEX_EQ) || (Current_Type == LEX_NEQ) || (Current_Type == LEX_G) || (Current_Type == LEX_L) ||
         (Current_Type == LEX_LEQ) || (Current_Type == LEX_GEQ) || (Current_Type == LEX_ASSIGN)) {
+        if (Current_Type == LEX_ASSIGN){
+            Lex Buffer = Poliz.back();
+            Poliz.pop_back();
+            Poliz.push_back(Lex(POLIZ_ADDRESS, Buffer.Get_Lex_Value()));
+        }
         Lex_Stack.push(Current_Type); //запоминаем текцщий тип в стеке. Для адекватной проверки на сравнимость типов
         Get_Lexeme();
         E1();
@@ -1012,8 +1009,5 @@ int main() {
         return 0;
     }
     cout << "\nSyntax and lexical analyses were completed successfully!\n";
-    //for (int i = 0; i < TID.size(); i++)
-    //    cout << TID[i].Get_Name() << ' ' << TID[i].Get_Value() << ' ' << TID[i].Get_Assign() << ' '
-    //         << TID[i].Get_Declare() << ' ' << TID[i].Get_Type() << endl;
     return 0;
 }
