@@ -5,8 +5,9 @@
 #include <string>
 #include <stack>
 
-//Version 2.0
-//Поправлены несколько багов, в том числе с присваиванием внутри операций и лишними ;. В таком виде и была сдана
+//Version 2.0.1
+//Исправлена некорректная работа break, в том числе в ПОЛИЗ-е
+
 using namespace std;
 
 FILE *Text;
@@ -39,7 +40,7 @@ enum Lex_Type {
     LEX_SEMICOLON, LEX_OPEN_BRACKET, LEX_CLOSE_BRACKET,
     LEX_OPEN_BRACE, LEX_CLOSE_BRACE, LEX_COMMA, LEX_TEXT, LEX_MOD,
     LEX_BREAK, LEX_DO, LEX_LOGIC, POLIZ_LABEL, POLIZ_ADDRESS, POLIZ_GO,
-    POLIZ_FGO
+    POLIZ_FGO, POLIZ_BREAK
 };
 
 struct Error {
@@ -382,7 +383,7 @@ void Parser::S() {
     } //end if
     else if (Current_Type == LEX_WHILE){ //обработка ровно такая же, как и у if, только без else части
         In_Cycle = true;
-        int Zero_Address = Poliz.size();
+        int Zero_Address = Poliz.size(); //чтобы при наличии нескольких while и нескольких break менять только относящиеся к этому циклу
         p10 = Poliz.size();
         Get_Lexeme();
         E();  //проверка выражения и проверка на то, явлается ли его результат логическим
@@ -400,13 +401,16 @@ void Parser::S() {
                 throw "Error! Unclosed bracket";
             }
             else
-                Get_Lexeme(); //переход на else
+                Get_Lexeme(); //переход на следующую лексему
         }
         else
             S(); //иначе-одна простая строка
         Poliz.push_back(Lex(POLIZ_LABEL, p10));
         Poliz.push_back(Lex(POLIZ_GO));
         Poliz[p11] = Lex(POLIZ_LABEL, Poliz.size());
+        for (int i = Zero_Address; i < Poliz.size(); i++)
+            if (Poliz[i].Get_Lex_Type() == POLIZ_BREAK)
+                Poliz[i] = Lex(POLIZ_LABEL, Poliz.size()); //переход при break делается на конец текущей части стека
         S(); //после выполнения while переходим на следующее действие
         In_Cycle = false;
     } // end while
@@ -521,7 +525,7 @@ void Parser::S() {
         if (Recursion == 0) Poliz.push_back(Lex(LEX_SEMICOLON));
     } //assign end
     else if (Current_Type == LEX_BREAK){
-        int Zero_Address = Poliz.size();
+        //int Zero_Address = Poliz.size();
         if (!In_Cycle){
             Output_Error_String();
             throw "Error! break is not allowed here";
@@ -532,11 +536,11 @@ void Parser::S() {
                 Output_Error_String();
                 throw "Error! Semicolon is lost in break";
             }
-            Poliz.push_back(Lex(POLIZ_LABEL, Zero_Address));
+            Poliz.push_back(Lex(POLIZ_BREAK)); //потом заменим на нормальную
             Poliz.push_back(Lex(POLIZ_GO)); //сюда надо вставить адрес. но сперва-просчитать его
-            cout << endl;
-            Get_Lexeme();
-            S();
+            //cout << endl;
+            //Get_Lexeme();
+            //S();
         }
     }
     else if (Current_Type == LEX_SEMICOLON);
