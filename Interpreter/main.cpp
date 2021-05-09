@@ -5,8 +5,11 @@
 #include <string>
 #include <stack>
 
-//Version 2.0.1
-//Исправлена некорректная работа break, в том числе в ПОЛИЗ-е
+//Version 2.1
+//Добавлено выполнение программы. Некоторые моменты работают хорошо, некоторые - плохо,
+//некоторые - не реализованы вообще
+
+//вопрос: есть ли в программе отрицательные числа вообще? Можно ли сделать while (a > -100)?
 
 using namespace std;
 
@@ -179,8 +182,8 @@ void Parser::Analyse() {
         Output_Error_String();
         throw "Error! Not finished";
     }
-    for (Lex l: Poliz)
-        cout << l;
+    //for (Lex l: Poliz)
+    //    cout << l;
 }
 
 void Parser::Initialisation() {
@@ -311,10 +314,10 @@ void Parser::Program() {
     Initialisation(); //инициализировали все нужные переменные
     S();
     B();
-    for (Lex l: Poliz)
-        cout << l;
-    cout << endl;
-    Poliz.clear();
+    //for (Lex l: Poliz)
+    //    cout << l;
+    //cout << endl;
+    //Poliz.clear();
     if (Current_Type == LEX_CLOSE_BRACKET)
         Get_Lexeme();
     else {
@@ -992,11 +995,219 @@ bool Scanner::Belongs_to_TD(char c) {  //проверка, является ли
         return true;
 }
 
+class Executer{
+public:
+    void Execute(vector <Lex> &Poliz);
+};
+
+void Executer::Execute(vector <Lex> &Poliz) {
+    for (Lex l: Poliz)
+        cout << l;
+    cout << endl;
+    Lex pc_el;
+    stack <int> Int_Args;
+    int i,j, Index = 0, Size = Poliz.size();
+    while (Index < Size){
+        pc_el = Poliz[Index];
+        switch(pc_el.Get_Lex_Type()){
+            case LEX_TRUE:
+            case LEX_FALSE:
+            case LEX_NUM:
+            case POLIZ_ADDRESS:
+            case POLIZ_LABEL:
+                Int_Args.push(pc_el.Get_Lex_Value());
+                break;
+            case LEX_SEMICOLON:
+                while (!Int_Args.empty())
+                    Int_Args.pop();
+                break;
+            case LEX_ID:
+                i = pc_el.Get_Lex_Value();
+                if (TID[i].Get_Assign()){
+                    Int_Args.push(TID[i].Get_Value());
+                    break;
+                }
+                else
+                    throw "POLIZ: indefinite identifier\n";
+            case LEX_NOT:
+                i = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(!i);
+                break;
+            case LEX_OR:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j || i);
+                break;
+            case LEX_AND:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j && i);
+                break;
+            case POLIZ_GO:
+                i = Int_Args.top();
+                Int_Args.pop();
+                Index = i - 1;
+                break;
+            case POLIZ_FGO:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                if (!j) Index = i - 1;
+                break;
+            case LEX_WRITE:
+                j = Int_Args.top();
+                Int_Args.pop();
+                cout << j << endl;
+                break;
+            case LEX_READ:
+                int k;
+                i = Int_Args.top();
+                Int_Args.pop();
+                if (TID[i].Get_Type() == LEX_NUM){ //LEX_NUM, LEX_INT - это исключительно слово t, а LEX_NUM- целочисленный параметр
+                    cout << "Input value for " << TID[i].Get_Name() << endl;
+                    cin >> k;
+                }
+                else if (TID[i].Get_Type() == LEX_TEXT){
+                    string j;
+                    while (1){
+                        cout << "Input value for " << TID[i].Get_Name() << endl;
+                        cin >> j;
+                        if ( (j != "true")  && (j != "false") ){
+                            cout << "Error! This variable is boolean. Write \"true\" or \"false\"\n";
+                            continue;;
+                        }
+                        k = (j == "true") ? 1:0;
+                        break;
+                    }
+                }
+                TID[i].Set_Value(k);
+                TID[i].Make_Assigned();
+                break;
+            case LEX_ADD:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j + i);
+                break;
+            case LEX_MULTIPLY:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j * i);
+                break;
+            case LEX_DIVIDE:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                if (i == 0)
+                    throw "Error! Division by zero\n";
+                Int_Args.push(j / i);
+                break;
+            case LEX_MOD:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                if (i == 0)
+                    throw "Error! Division by zero\n";
+                Int_Args.push(j % i);
+                break;
+            case LEX_SUBTRACT:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j - i);
+                break;
+            case LEX_EQ:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j == i);
+                break;
+            case LEX_NEQ:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j != i);
+                break;
+            case LEX_GEQ:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j >= i);
+                break;
+            case LEX_LEQ:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j <= i);
+                break;
+            case LEX_L:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j < i);
+                break;
+            case LEX_G:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                Int_Args.pop();
+                Int_Args.push(j > i);
+                break;
+            case LEX_ASSIGN:
+                i = Int_Args.top();
+                Int_Args.pop();
+                j = Int_Args.top();
+                TID[j].Set_Value(i);
+                TID[j].Make_Assigned();
+                break;
+            default:
+                throw "POLIZ: unexpected symbol\n";
+        } //end of switch
+        Index++;
+    } //end of while
+    cout << "\nExecution was successfully finished!\n";
+}
+
+class Interpretator{
+    Parser Pars;
+    Executer E;
+public:
+    Interpretator (const char *Program): Pars(Program){}
+    void Interpretation();
+};
+
+void Interpretator::Interpretation() {
+    Pars.Analyse();
+    E.Execute(Pars.Poliz);
+}
+
 int main() {
     try {
-        Parser P1("Test1.txt");
-        P1.Analyse();
+        Interpretator I ("Test1.txt");
+        I.Interpretation();
+        return 0;
     }
+    //try {
+    //    Parser P1("Test1.txt");
+    //    P1.Analyse();
+    //}
     catch (Error E1) {
         if (E1.Type == Error::WRONG_CHARACTER) cout << "Lexical Error: Wrong character: " << E1.c << endl;
         if (E1.Type == Error::WRONG_IDENTIFIER) cout << "Lexical Error: Incorrect type of identifier: " << E1.Wrong_Lex << endl;
