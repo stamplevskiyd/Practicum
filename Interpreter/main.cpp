@@ -5,11 +5,8 @@
 #include <string>
 #include <stack>
 
-//Version 2.1
-//Добавлено выполнение программы. Некоторые моменты работают хорошо, некоторые - плохо,
-//некоторые - не реализованы вообще
-
-//вопрос: есть ли в программе отрицательные числа вообще? Можно ли сделать while (a > -100)?
+//Version 2.1.1
+//Почему-то заработал if с else и без. Причины не совсем понятны
 
 using namespace std;
 
@@ -101,6 +98,7 @@ public:
     }
     Lex_Type Get_Lex_Type() const { return Type; }
     int Get_Lex_Value() const { return Lex_Value; }
+    void Set_Lex_Value (int v) {Lex_Value = v;}
     friend ostream &operator<<(ostream &out, const Lex &L); //перегрузка вывода лексемы. Нужно хотя бы для проверки
     static Lex Lex_TW(string N); //перевод строки из таблицы в лексему. возвращает без значения и строки, вроде логично
 };
@@ -380,6 +378,7 @@ void Parser::S() {
         else{
             Poliz.pop_back(); //если переходя по else нет, значит, надо убрать лишние элементы: адрес и символ перехода из полиза
             Poliz.pop_back();
+            Poliz[p12].Set_Lex_Value(p13);
         }
         In_If = false;
         S(); //переход на следующее действие
@@ -528,7 +527,6 @@ void Parser::S() {
         if (Recursion == 0) Poliz.push_back(Lex(LEX_SEMICOLON));
     } //assign end
     else if (Current_Type == LEX_BREAK){
-        //int Zero_Address = Poliz.size();
         if (!In_Cycle){
             Output_Error_String();
             throw "Error! break is not allowed here";
@@ -541,9 +539,6 @@ void Parser::S() {
             }
             Poliz.push_back(Lex(POLIZ_BREAK)); //потом заменим на нормальную
             Poliz.push_back(Lex(POLIZ_GO)); //сюда надо вставить адрес. но сперва-просчитать его
-            //cout << endl;
-            //Get_Lexeme();
-            //S();
         }
     }
     else if (Current_Type == LEX_SEMICOLON);
@@ -786,6 +781,7 @@ ostream &operator<<(ostream &out, const Lex &L) {
     if (L.Type == LEX_NUM) cout << L.Get_Lex_Value() << ' ';
     if (L.Type == POLIZ_GO) cout << "! ";
     if (L.Type == POLIZ_FGO) cout << "!F ";
+    if (L.Type == POLIZ_BREAK) cout << "PB ";
     if (L.Type == POLIZ_LABEL) cout << "PL" << L.Get_Lex_Value() << ' ';
     if (L.Type == POLIZ_ADDRESS) cout << "&" << TID[L.Get_Lex_Value()].Get_Name() << ' '; // POLIZ_ADDRESS - это как раз адрес переменной
     return out;
@@ -1013,6 +1009,8 @@ void Executer::Execute(vector <Lex> &Poliz) {
             case LEX_TRUE:
             case LEX_FALSE:
             case LEX_NUM:
+            case LEX_TEXT:
+            case LEX_LOGIC:
             case POLIZ_ADDRESS:
             case POLIZ_LABEL:
                 Int_Args.push(pc_el.Get_Lex_Value());
@@ -1073,7 +1071,7 @@ void Executer::Execute(vector <Lex> &Poliz) {
                     cout << "Input value for " << TID[i].Get_Name() << endl;
                     cin >> k;
                 }
-                else if (TID[i].Get_Type() == LEX_TEXT){
+                else if (TID[i].Get_Type() == LEX_LOGIC){
                     string j;
                     while (1){
                         cout << "Input value for " << TID[i].Get_Name() << endl;
