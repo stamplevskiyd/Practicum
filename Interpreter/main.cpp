@@ -5,8 +5,10 @@
 #include <string>
 #include <stack>
 
-//Version 2.2
+//Version 2.3
 //Стек теперь состоит из лексем, благодаря чему вывод работает корректно. Вывод нескольких аргументов также починен
+//Поправлена пара других мелких багов, в том числе с делением. Переделано рекурсивное присваивание, теперь работает
+//Предварительно - готовая программа
 
 using namespace std;
 
@@ -312,10 +314,6 @@ void Parser::Program() {
     Initialisation(); //инициализировали все нужные переменные
     S();
     B();
-    //for (Lex l: Poliz)
-    //    cout << l;
-    //cout << endl;
-    //Poliz.clear();
     if (Current_Type == LEX_CLOSE_BRACKET)
         Get_Lexeme();
     else {
@@ -632,6 +630,7 @@ void Parser::F() {
     }
     else {
         Output_Error_String();
+        cout << Current_Lex << endl;
         throw "Error!";
     }
 }
@@ -927,8 +926,7 @@ Lex Scanner::Get_Lex() {
             case Ident:
                 //к этому моменту первый символ уже есть и он верный. так что проверка на цифру не нужна
                 if ((!IsDigit(c)) && (!IsLetter(c))) {
-                    ungetc(c,
-                           Text); //возвращаем символ и проверяем, не была ли лексема специальным словом, сравнивая ее ТЕКСТ
+                    ungetc(c, Text); //возвращаем символ и проверяем, не была ли лексема специальным словом, сравнивая ее ТЕКСТ
                     TW_Position = 0;
                     while ((TW[TW_Position] != "END_OF_ARRAY") && (TW[TW_Position] != buf))
                         TW_Position++;
@@ -945,8 +943,10 @@ Lex Scanner::Get_Lex() {
                 // / уже получено
                 if (c == '*') {
                     CurrentState = Comment;
-                } else
-                    CurrentState = Division;
+                } else {
+                    ungetc(c, Text);
+                    return LEX_DIVIDE;
+                }
                 break;
             case Comment: //в комментарии не надо заморачиваться с \", а вот в строках надо
                 if (c == EOF)
@@ -1003,8 +1003,6 @@ void Executer::Execute(vector <Lex> &Poliz) {
     Lex pc_el;
     stack <Lex> Args;
     stack <string> Str_Args;
-    bool Work_With_String = false;
-    bool Work_With_Bool = false;
     int i,j, Index = 0, Size = Poliz.size();
     while (Index < Size){
         pc_el = Poliz[Index];
@@ -1014,13 +1012,11 @@ void Executer::Execute(vector <Lex> &Poliz) {
             case LEX_NUM:
             case LEX_LOGIC:
             case LEX_TEXT:
-            case POLIZ_ADDRESS:
             case POLIZ_LABEL:
                 Args.push(pc_el);
-                if (pc_el.Get_Lex_Type() == LEX_TEXT)
-                    Work_With_String = true;
-                if (pc_el.Get_Lex_Type() == LEX_LOGIC)
-                    Work_With_Bool = true;
+                break;
+            case POLIZ_ADDRESS:
+                Args.push(Lex(LEX_NUM, pc_el.Get_Lex_Value()));
                 break;
             case LEX_SEMICOLON:
                 while (!Args.empty())
@@ -1147,7 +1143,7 @@ void Executer::Execute(vector <Lex> &Poliz) {
                     j = Args.top().Get_Lex_Value();
                     y = TS[j];
                     Args.pop();
-                    TS.push_back(x + y); //добавляем в конец таблицы строк новую, сумму этих двух
+                    TS.push_back(y + x); //добавляем в конец таблицы строк новую, сумму этих двух. Кроме того, порядок то обратный
                     Args.push(Lex(LEX_TEXT ,TS.size() - 1)); //новая строка-последняя
                 }
                 break;
@@ -1225,13 +1221,25 @@ void Executer::Execute(vector <Lex> &Poliz) {
                 Args.pop();
                 Args.push(Lex(LEX_NUM, j > i));
                 break;
-            case LEX_ASSIGN:
+            case LEX_ASSIGN: {
+                Lex Buffer;
                 i = Args.top().Get_Lex_Value(); //все случаи отрабатываем одинаково. Просто для чисел value-их значение, а для строк-номер в таблице
                 Args.pop();
                 j = Args.top().Get_Lex_Value();
+                Buffer = Args.top();
+                Args.pop();
                 TID[j].Set_Value(i);
                 TID[j].Make_Assigned();
+                if (Buffer.Get_Lex_Type() == POLIZ_ADDRESS)
+                    Args.push(Lex(LEX_ID, Buffer.Get_Lex_Value()));
+                else if (Buffer.Get_Lex_Type() == LEX_NUM)
+                    Args.push(Lex(LEX_NUM, i));
+                else if (Buffer.Get_Lex_Type() == LEX_TEXT)
+                    Args.push(Lex(LEX_TEXT, i));
+                else if (Buffer.Get_Lex_Type() == LEX_LOGIC)
+                    Args.push(Lex(LEX_LOGIC, i));
                 break;
+            }
             default:
                 throw "POLIZ: unexpected symbol\n";
         } //end of switch
