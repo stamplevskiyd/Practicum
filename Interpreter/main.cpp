@@ -5,8 +5,8 @@
 #include <string>
 #include <stack>
 
-//Version 2.1.1
-//Почему-то заработал if с else и без. Причины не совсем понятны
+//Version 2.2
+//Стек теперь состоит из лексем, благодаря чему вывод работает корректно. Вывод нескольких аргументов также починен
 
 using namespace std;
 
@@ -997,11 +997,14 @@ public:
 };
 
 void Executer::Execute(vector <Lex> &Poliz) {
-    for (Lex l: Poliz)
-        cout << l;
-    cout << endl;
+    //for (Lex l: Poliz)
+    //    cout << l;
+    //cout << endl;
     Lex pc_el;
-    stack <int> Int_Args;
+    stack <Lex> Args;
+    stack <string> Str_Args;
+    bool Work_With_String = false;
+    bool Work_With_Bool = false;
     int i,j, Index = 0, Size = Poliz.size();
     while (Index < Size){
         pc_el = Poliz[Index];
@@ -1009,67 +1012,102 @@ void Executer::Execute(vector <Lex> &Poliz) {
             case LEX_TRUE:
             case LEX_FALSE:
             case LEX_NUM:
-            case LEX_TEXT:
             case LEX_LOGIC:
+            case LEX_TEXT:
             case POLIZ_ADDRESS:
             case POLIZ_LABEL:
-                Int_Args.push(pc_el.Get_Lex_Value());
+                Args.push(pc_el);
+                if (pc_el.Get_Lex_Type() == LEX_TEXT)
+                    Work_With_String = true;
+                if (pc_el.Get_Lex_Type() == LEX_LOGIC)
+                    Work_With_Bool = true;
                 break;
             case LEX_SEMICOLON:
-                while (!Int_Args.empty())
-                    Int_Args.pop();
+                while (!Args.empty())
+                    Args.pop();
                 break;
             case LEX_ID:
                 i = pc_el.Get_Lex_Value();
                 if (TID[i].Get_Assign()){
-                    Int_Args.push(TID[i].Get_Value());
+                    Args.push(Lex(TID[i].Get_Type(), TID[i].Get_Value()));
                     break;
                 }
                 else
                     throw "POLIZ: indefinite identifier\n";
             case LEX_NOT:
-                i = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(!i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                if (i)
+                    Args.push(Lex(LEX_NUM ,1));
+                else
+                    Args.push(Lex(LEX_NUM ,0));
                 break;
             case LEX_OR:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j || i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                if (j || i)
+                    Args.push(Lex(LEX_NUM ,1));
+                else
+                    Args.push(Lex(LEX_NUM ,0));
                 break;
             case LEX_AND:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j && i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                if (j && i)
+                    Args.push(Lex(LEX_NUM ,1));
+                else
+                    Args.push(Lex(LEX_NUM ,0));
                 break;
             case POLIZ_GO:
-                i = Int_Args.top();
-                Int_Args.pop();
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
                 Index = i - 1;
                 break;
             case POLIZ_FGO:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
                 if (!j) Index = i - 1;
                 break;
-            case LEX_WRITE:
-                j = Int_Args.top();
-                Int_Args.pop();
-                cout << j << endl;
+            case LEX_WRITE:{
+                Lex Buffer;
+                vector <Lex> Output_Buf;
+                while (!Args.empty()) { //переписываем стек в вектор для прямого порядка вывода
+                    Output_Buf.push_back(Args.top());
+                    Args.pop();
+                }
+                for (int i = Output_Buf.size() - 1; i >= 0 ; i --){
+                    Buffer = Output_Buf[i];
+                    if (Buffer.Get_Lex_Type() == LEX_NUM)
+                        cout << Buffer.Get_Lex_Value() << ' ';
+                    else if (Buffer.Get_Lex_Type() == LEX_TEXT)
+                        cout << TS[Buffer.Get_Lex_Value()] << ' ';
+                    else if (Buffer.Get_Lex_Type() == LEX_TRUE)
+                        cout << "true" << ' ';
+                    else if (Buffer.Get_Lex_Type() == LEX_FALSE)
+                        cout << "false" << ' ';
+                    else if (Buffer.Get_Lex_Type() == LEX_LOGIC)
+                        if (Buffer.Get_Lex_Value() == 1)
+                            cout << "true" << ' ';
+                        else
+                            cout << "false" << ' ';
+                }
+                cout << endl;
                 break;
+            }
             case LEX_READ:
                 int k;
-                i = Int_Args.top();
-                Int_Args.pop();
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
                 if (TID[i].Get_Type() == LEX_NUM){ //LEX_NUM, LEX_INT - это исключительно слово t, а LEX_NUM- целочисленный параметр
                     cout << "Input value for " << TID[i].Get_Name() << endl;
                     cin >> k;
+                    TID[i].Set_Value(k);
                 }
                 else if (TID[i].Get_Type() == LEX_LOGIC){
                     string j;
@@ -1081,97 +1119,116 @@ void Executer::Execute(vector <Lex> &Poliz) {
                             continue;;
                         }
                         k = (j == "true") ? 1:0;
+                        TID[i].Set_Value(k);
                         break;
                     }
                 }
-                TID[i].Set_Value(k);
+                else if (TID[i].Get_Type() == LEX_TEXT){
+                    string j;
+                    cout << "Input value for " << TID[i].Get_Name() << endl;
+                    cin >> j;
+                    TS[TID[i].Get_Value()] = j;
+                }
                 TID[i].Make_Assigned();
                 break;
             case LEX_ADD:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j + i);
+                if (Args.top().Get_Lex_Type() == LEX_NUM){
+                    i = Args.top().Get_Lex_Value();
+                    Args.pop();
+                    j = Args.top().Get_Lex_Value();
+                    Args.pop();
+                    Args.push(Lex(LEX_NUM ,j + i));
+                }
+                if (Args.top().Get_Lex_Type() == LEX_TEXT){
+                    string x,y;
+                    i = Args.top().Get_Lex_Value();
+                    x = TS[i];
+                    Args.pop();
+                    j = Args.top().Get_Lex_Value();
+                    y = TS[j];
+                    Args.pop();
+                    TS.push_back(x + y); //добавляем в конец таблицы строк новую, сумму этих двух
+                    Args.push(Lex(LEX_TEXT ,TS.size() - 1)); //новая строка-последняя
+                }
                 break;
             case LEX_MULTIPLY:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j * i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM ,j * i));
                 break;
             case LEX_DIVIDE:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
                 if (i == 0)
                     throw "Error! Division by zero\n";
-                Int_Args.push(j / i);
+                Args.push(Lex(LEX_NUM, j / i));
                 break;
             case LEX_MOD:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
                 if (i == 0)
                     throw "Error! Division by zero\n";
-                Int_Args.push(j % i);
+                Args.push(Lex(LEX_NUM, j % i));
                 break;
             case LEX_SUBTRACT:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j - i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j - i));
                 break;
             case LEX_EQ:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j == i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j == i));
                 break;
             case LEX_NEQ:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j != i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j != i));
                 break;
             case LEX_GEQ:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j >= i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j >= i));
                 break;
             case LEX_LEQ:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j <= i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j <= i));
                 break;
             case LEX_L:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j < i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j < i));
                 break;
             case LEX_G:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
-                Int_Args.pop();
-                Int_Args.push(j > i);
+                i = Args.top().Get_Lex_Value();
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
+                Args.pop();
+                Args.push(Lex(LEX_NUM, j > i));
                 break;
             case LEX_ASSIGN:
-                i = Int_Args.top();
-                Int_Args.pop();
-                j = Int_Args.top();
+                i = Args.top().Get_Lex_Value(); //все случаи отрабатываем одинаково. Просто для чисел value-их значение, а для строк-номер в таблице
+                Args.pop();
+                j = Args.top().Get_Lex_Value();
                 TID[j].Set_Value(i);
                 TID[j].Make_Assigned();
                 break;
@@ -1202,10 +1259,6 @@ int main() {
         I.Interpretation();
         return 0;
     }
-    //try {
-    //    Parser P1("Test1.txt");
-    //    P1.Analyse();
-    //}
     catch (Error E1) {
         if (E1.Type == Error::WRONG_CHARACTER) cout << "Lexical Error: Wrong character: " << E1.c << endl;
         if (E1.Type == Error::WRONG_IDENTIFIER) cout << "Lexical Error: Incorrect type of identifier: " << E1.Wrong_Lex << endl;
